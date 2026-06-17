@@ -29,6 +29,27 @@ function emitProgress(message, value = null, max = null) {
   }
 }
 
+const progressSourceLabels = {
+  ozon: 'Ozon',
+  wildberries: 'Wildberries',
+  yandex: 'Яндекс Маркет'
+};
+
+async function trackSourceProgress(source, work) {
+  try {
+    const result = await work();
+    emitProgress(`${progressSourceLabels[source]}: готово, строк ${(result.rows || []).length}.`);
+    return {
+      source,
+      rows: result.rows || [],
+      stats: result.stats || {}
+    };
+  } catch (error) {
+    emitProgress(`${progressSourceLabels[source]}: ошибка: ${error.message}`);
+    throw error;
+  }
+}
+
 function chromeCall(fn, ...args) {
   return new Promise((resolve, reject) => {
     fn(...args, (result) => {
@@ -263,7 +284,7 @@ function parseWbReceiptItems(html) {
     const amount = amountFromText(stripTags(costBlock));
 
     if (title && amount && !isWbServiceItemTitle(title)) {
-      items.push({ title, amount });
+      items.push({ title, amount, itemIndex: items.length + 1 });
     }
   }
 
@@ -324,6 +345,7 @@ async function recordsFromWbReceipt(receipt) {
       type,
       is_return: isReturn ? '1' : '0',
       marketplace_id: receipt.receiptUid || '',
+      item_index: '1',
       receipt_url: receiptUrl,
       raw_title: `operationTypeId=${receipt.operationTypeId || ''}`,
       raw_amount: String(receipt.operationSum ?? '')
@@ -341,6 +363,7 @@ async function recordsFromWbReceipt(receipt) {
     type,
     is_return: isReturn ? '1' : '0',
     marketplace_id: receipt.receiptUid || '',
+    item_index: String(item.itemIndex || ''),
     receipt_url: receiptUrl,
     raw_title: `operationTypeId=${receipt.operationTypeId || ''}`,
     raw_amount: String(item.amount)
@@ -636,6 +659,7 @@ function parseYandexReceiptItems(html) {
     items.push({
       title,
       amount,
+      itemIndex: items.length + 1,
       settlementKind: yandexSettlementKind(cells[1])
     });
   }
@@ -682,6 +706,7 @@ function rowsFromYandexReceiptHtml(receipt, html) {
     type: isReturn ? 'refund' : 'purchase',
     is_return: isReturn ? '1' : '0',
     marketplace_id: `${receipt.orderId || ''}:${receipt.id || yandexReceiptId(receipt.fiscalUrl)}`,
+    item_index: String(item.itemIndex || ''),
     receipt_url: receipt.fiscalUrl || '',
     raw_title: `orderId=${receipt.orderId || ''} receiptType=${receipt.type || ''}`,
     raw_amount: String(item.amount),
@@ -791,48 +816,54 @@ async function collectSpend({ sources, options }) {
   const warnings = [];
   const stats = {};
   const jobs = [];
+  const knownReceipts = options.knownReceipts || {};
+  const knownReceiptTail = options.knownReceiptTail;
 
   if (sources.includes('ozon')) {
-    jobs.push((async () => {
+    jobs.push(trackSourceProgress('ozon', async () => {
       emitProgress('Ozon: открываю вкладку и собираю чеки...', 0, sources.length);
       const result = await collectFromTab('ozon', {
         maxPages: options.ozonMaxPages,
         parsePdf: options.ozonParsePdf !== false,
         pdfConcurrency: options.ozonPdfConcurrency,
-        apiPauseMs: options.ozonApiPauseMs
+        apiPauseMs: options.ozonApiPauseMs,
+        knownReceipts: knownReceipts.ozon || [],
+        knownReceiptTail
       });
       return {
-        source: 'ozon',
         rows: result.rows || [],
         stats: result.stats || {}
       };
-    })());
+    }));
   }
 
   if (sources.includes('wildberries')) {
-    jobs.push((async () => {
+    jobs.push(trackSourceProgress('wildberries', async () => {
       emitProgress('Wildberries: открываю вкладку и собираю чеки...', 0, sources.length);
       const result = await collectFromTab('wildberries', {
         maxPages: options.wbMaxPages,
         pageSize: options.wbPageSize,
-        apiPauseMs: options.wbApiPauseMs
+        apiPauseMs: options.wbApiPauseMs,
+        knownReceipts: knownReceipts.wildberries || [],
+        knownReceiptTail
       });
       return {
-        source: 'wildberries',
         rows: await rowsFromWbReceipts(result.receipts || [], options.wbReceiptConcurrency),
         stats: result.stats || {}
       };
-    })());
+    }));
   }
 
   if (sources.includes('yandex')) {
-    jobs.push((async () => {
+    jobs.push(trackSourceProgress('yandex', async () => {
       emitProgress('Яндекс Маркет: открываю вкладку и собираю чеки...', 0, sources.length);
       const { response: metadata, managedTab } = await collectFromTabKeepOpen('yandex', {
         maxPages: options.yandexMaxPages,
         receiptConcurrency: options.yandexReceiptConcurrency,
         apiPauseMs: options.yandexApiPauseMs,
-        metadataOnly: true
+        metadataOnly: true,
+        knownOrderIds: knownReceipts.yandexOrders || [],
+        knownReceiptTail
       });
       try {
         const result = await collectYandexReceipts(metadata, {
@@ -842,7 +873,6 @@ async function collectSpend({ sources, options }) {
         });
         const parsed = await rowsFromYandexReceipts(result.receipts || [], 4);
         return {
-          source: 'yandex',
           rows: parsed.rows,
           stats: {
             ...(metadata.stats || {}),
@@ -853,7 +883,7 @@ async function collectSpend({ sources, options }) {
       } finally {
         await closeManagedTab(managedTab, 'yandex');
       }
-    })());
+    }));
   }
 
   const results = await Promise.all(jobs.map((job) => job
