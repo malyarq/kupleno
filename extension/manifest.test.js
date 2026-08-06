@@ -13,7 +13,7 @@ const changelog = fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'u
 assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
 assert.equal(packageJson.version, manifest.version);
 assert.match(changelog, new RegExp(`^## ${manifest.version}\\b`, 'm'));
-assert.equal(rootReadme.includes(`Текущая версия исходников: \`${manifest.version}\``), true);
+assert.equal(rootReadme.includes(`Текущий релиз: \`${manifest.version}\``), true);
 assert.equal(extensionReadme.includes(`Версия: \`${manifest.version}\``), true);
 assert.deepEqual(manifest.permissions, ['scripting', 'storage', 'unlimitedStorage']);
 assert.deepEqual(manifest.optional_permissions, ['cookies']);

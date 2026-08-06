@@ -40,7 +40,7 @@ const packageJson = JSON.parse(read('package.json'));
 assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
 assert.equal(packageJson.version, manifest.version);
 assert.match(read('CHANGELOG.md'), new RegExp(`^## ${manifest.version}\\b`, 'm'));
-assert.ok(read('README.md').includes(`Текущая версия исходников: \`${manifest.version}\``));
+assert.ok(read('README.md').includes(`Текущий релиз: \`${manifest.version}\``));
 assert.ok(read('extension/README.md').includes(`Версия: \`${manifest.version}\``));
 
 for (const workflow of ['.github/workflows/verify-release.yml', '.github/workflows/release-candidate.yml']) {
