@@ -47,7 +47,7 @@ git tag -a vX.Y.Z -m "MarketTrat vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-Push точного тега автоматически запускает workflow `Build release candidate`. Ручного запуска из ветки нет: это не позволяет подменить проверяющий workflow. Он повторно выполняет:
+Push точного тега автоматически запускает workflow `Build release candidate`. Если GitHub не доставил событие push, владелец может запустить тот же workflow вручную только с `main` и передать уже существующий тег в поле `tag`. Запуск из произвольной ветки пропускается, а workflow всё равно переключается на тег и проверяет его полностью. Он повторно выполняет:
 
 ```sh
 npm run verify:release -- vX.Y.Z
