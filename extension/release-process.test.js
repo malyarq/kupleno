@@ -55,7 +55,10 @@ for (const workflow of ['.github/workflows/verify-release.yml', '.github/workflo
 
 const candidateWorkflow = read('.github/workflows/release-candidate.yml');
 assert.match(candidateWorkflow, /npm run verify:release/);
-assert.doesNotMatch(candidateWorkflow, /workflow_dispatch|inputs\.tag/);
+assert.match(candidateWorkflow, /workflow_dispatch:/);
+assert.match(candidateWorkflow, /inputs\.tag \|\| github\.ref_name/);
+assert.match(candidateWorkflow, /github\.event_name == 'push' \|\| github\.ref == 'refs\/heads\/main'/);
+assert.match(candidateWorkflow, /ref: \$\{\{ inputs\.tag \|\| github\.ref \}\}/);
 assert.doesNotMatch(candidateWorkflow, /gh release|softprops\/action-gh-release|contents:\s*write/i);
 
 const verifyWorkflow = read('.github/workflows/verify-release.yml');
