@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { guessSpendCategory, setSpendCategoryRules } = require('./categories.js');
+const { classifySpendCategory, guessSpendCategory, setSpendCategoryRules } = require('./categories.js');
 
 for (const [title, category] of [
   ['Смартфон Apple iPhone 15 128GB', 'Электроника'],
@@ -68,4 +68,106 @@ assert.equal(setSpendCategoryRules({
 assert.equal(guessSpendCategory('Очень редкий qwertycustom товар'), 'Хобби и творчество');
 setSpendCategoryRules({ rules: [{ category: 'Подписки', weight: 9, tokens: ['steam'] }] });
 assert.equal(guessSpendCategory('Iron Sky электронный ключ PC Steam'), 'Подписки');
+setSpendCategoryRules({ rules: [] });
+
+// v2 must make a decision auditable. These deliberately overlap: the old
+// keyword-only behaviour is where false positives are most expensive.
+const adversarialCases = [
+  ['крем для обуви бесцветный', 'Бытовая химия'],
+  ['кофейный столик для гостиной', 'Мебель'],
+  ['мозаика для ванной комнаты', 'Ремонт'],
+  ['мясо для шашлыка охлажденное', 'Продукты'],
+  ['горшок для цветов керамический', 'Сад'],
+  ['масло для волос аргановое', 'Красота и уход'],
+  ['пластилин для лепки мягкий', 'Хобби и творчество'],
+  ['чай зелёный листовой', 'Продукты'],
+  ['крем для лица увлажняющий', 'Красота и уход'],
+  ['крем для рук питательный', 'Красота и уход'],
+  ['мозаика алмазная для творчества', 'Хобби и творчество'],
+  ['горшок детский дорожный', 'Детям'],
+  ['масло моторное 5W-30', 'Авто'],
+  ['масло для бороды', 'Красота и уход'],
+  ['чайник электрический стальной', 'Бытовая техника'],
+  ['чайный столик на колесиках', 'Мебель'],
+  ['игрушка пластилин набор', 'Игрушки'],
+  ['подарочный набор чая', 'Продукты'],
+  ['расческа для волос', 'Красота и уход'],
+  ['шампур для шашлыка', 'Дом'],
+  ['карандаш для губ', 'Красота и уход'],
+  ['карандаш канцелярский', 'Канцтовары'],
+  ['свеча зажигания автомобильная', 'Авто'],
+  ['свеча ароматическая', 'Дом'],
+  ['соль для посудомойки', 'Бытовая химия'],
+  ['мыло для лепки', 'Хобби и творчество'],
+  ['корм для рыб', 'Зоотовары'],
+  ['набор для валяния шерсти', 'Хобби и творчество'],
+  ['зарядный кабель usb', 'Электроника'],
+  ['вилка Smartbuy', 'Ремонт'],
+  ['крем обувной', 'Бытовая химия'],
+  ['зелёный чай матча', 'Продукты']
+];
+
+for (const [title, category] of adversarialCases) {
+  const result = classifySpendCategory(title);
+  assert.equal(result.category, category, title);
+  assert.equal(result.suggestedCategory, category, `${title}: suggestion`);
+  assert.ok(result.confidence > 0 && result.confidence <= 1, `${title}: confidence`);
+  assert.ok(Array.isArray(result.evidence) && result.evidence.length, `${title}: evidence`);
+  assert.ok(Array.isArray(result.candidates) && result.candidates[0]?.category === category, `${title}: candidates`);
+  assert.equal(result.method, 'lexicon-v2', `${title}: method`);
+}
+
+for (const title of [
+  'крем для обуви', 'кофейный столик', 'мозаика для ванной', 'мясо для шашлыка',
+  'горшок для цветов', 'масло для волос', 'пластилин для лепки', 'чай зелёный'
+]) {
+  const result = classifySpendCategory(title);
+  assert.ok(result.evidence.some((item) => item.kind === 'phrase' && item.source === 'context'), `${title}: contextual phrase`);
+  assert.equal(result.needsReview, false, `${title}: resolved context`);
+}
+
+const stemResult = classifySpendCategory('игрушка пластилин');
+assert.ok(stemResult.evidence.some((item) => item.kind === 'stem' && item.token === 'игрушк'));
+const exactResult = classifySpendCategory('чай матча');
+assert.ok(exactResult.evidence.some((item) => item.kind === 'exact' && item.token === 'чай'));
+
+const conflicting = classifySpendCategory('сумка для ноутбука');
+assert.equal(conflicting.category, 'unknown');
+assert.equal(conflicting.suggestedCategory, 'Аксессуары');
+assert.equal(conflicting.needsReview, true);
+assert.equal(conflicting.candidates.length, 2);
+assert.equal(conflicting.candidates[0].score, conflicting.candidates[1].score);
+assert.ok(conflicting.confidence < 0.5);
+
+const weak = classifySpendCategory('шампур');
+assert.equal(weak.category, 'Дом');
+assert.equal(weak.needsReview, true);
+assert.ok(weak.confidence < 0.64);
+
+for (const [title, suggestion] of [
+  ['Игрушка для кошки', 'Игрушки'],
+  ['Кольцо для ключей', 'Украшения']
+]) {
+  const result = classifySpendCategory(title);
+  assert.equal(result.category, suggestion, title);
+  assert.equal(result.suggestedCategory, suggestion, title);
+  assert.equal(result.needsReview, true, `${title}: общий одиночный признак требует проверки`);
+}
+
+assert.deepEqual(classifySpendCategory('Подарочный набор'), {
+  category: 'unknown', suggestedCategory: 'unknown', confidence: 0,
+  evidence: [], candidates: [], needsReview: true, method: 'lexicon-v2'
+});
+assert.equal(classifySpendCategory({ raw_title: 'чай зелёный' }).category, 'Продукты');
+
+// A local pack may replace an embedded token, but must not score it twice.
+setSpendCategoryRules({ rules: [{ category: 'Подписки', weight: 9, tokens: ['steam'] }] });
+const localDuplicate = classifySpendCategory('Steam');
+assert.equal(localDuplicate.category, 'Подписки');
+assert.equal(localDuplicate.candidates[0].score, 10);
+assert.deepEqual(localDuplicate.evidence, [{ token: 'steam', kind: 'exact', source: 'local', score: 10 }]);
+setSpendCategoryRules({ rules: [{ category: 'Локальная категория', weight: 10, tokens: ['privateitem'] }] });
+const localOnly = classifySpendCategory('privateitem');
+assert.equal(localOnly.category, 'Локальная категория');
+assert.equal(localOnly.evidence[0].source, 'local');
 setSpendCategoryRules({ rules: [] });

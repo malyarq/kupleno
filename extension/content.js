@@ -1,6 +1,7 @@
 (() => {
-  if (window.__marketplaceSpendExporterInjected) return;
-  window.__marketplaceSpendExporterInjected = true;
+  const contentScriptVersion = 'markettrat-content-v2';
+  if (window.__marketplaceSpendExporterInjected === contentScriptVersion) return;
+  window.__marketplaceSpendExporterInjected = contentScriptVersion;
 
   const api = globalThis.chrome;
 
@@ -79,33 +80,121 @@
 
   let pdfjsPromise = null;
 
-  async function fetchText(url, options = {}) {
-    const response = await fetch(url, {
-      credentials: 'include',
-      ...options,
-      headers: {
-        accept: 'text/html,application/json,*/*',
-        ...(options.headers || {})
+  const allowedFetchHosts = new Set([
+    'ozon.ru',
+    'www.ozon.ru',
+    'wildberries.ru',
+    'www.wildberries.ru',
+    'astro.wildberries.ru',
+    'receipt.wb.ru',
+    'market.yandex.ru',
+    'check.yandex.ru'
+  ]);
+  const maxTextResponseBytes = 10 * 1024 * 1024;
+  const maxPdfResponseBytes = 25 * 1024 * 1024;
+  const requestTimeoutMs = 25_000;
+
+  function allowedMarketplaceUrl(value) {
+    let parsed;
+    try {
+      parsed = new URL(String(value || ''), location.origin);
+    } catch {
+      throw new Error('некорректная ссылка маркетплейса');
+    }
+    if (parsed.protocol !== 'https:' || !allowedFetchHosts.has(parsed.hostname.toLowerCase())) {
+      throw new Error(`запрещённый адрес маркетплейса: ${parsed.hostname || value}`);
+    }
+    return parsed.href;
+  }
+
+  function retryDelay(response, attempt) {
+    const retryAfter = Number(response.headers.get('retry-after'));
+    if (Number.isFinite(retryAfter) && retryAfter > 0) return Math.min(15_000, retryAfter * 1000);
+    return 750 * (2 ** attempt);
+  }
+
+  async function responseBytes(response, maxBytes) {
+    const announced = Number(response.headers.get('content-length'));
+    if (Number.isFinite(announced) && announced > maxBytes) {
+      throw new Error(`ответ больше допустимых ${Math.round(maxBytes / 1024 / 1024)} МБ`);
+    }
+    if (!response.body?.getReader) {
+      const buffer = await response.arrayBuffer();
+      if (buffer.byteLength > maxBytes) throw new Error(`ответ больше допустимых ${Math.round(maxBytes / 1024 / 1024)} МБ`);
+      return new Uint8Array(buffer);
+    }
+
+    const reader = response.body.getReader();
+    const chunks = [];
+    let length = 0;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        length += value.byteLength;
+        if (length > maxBytes) {
+          await reader.cancel('response too large').catch(() => {});
+          throw new Error(`ответ больше допустимых ${Math.round(maxBytes / 1024 / 1024)} МБ`);
+        }
+        chunks.push(value);
       }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return bytes;
+  }
+
+  async function fetchBytes(url, options, { accept, maxBytes }) {
+    const safeUrl = allowedMarketplaceUrl(url);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
+      try {
+        const response = await fetch(safeUrl, {
+          credentials: 'include',
+          ...options,
+          signal: controller.signal,
+          headers: {
+            accept,
+            ...(options?.headers || {})
+          }
+        });
+        if (response.ok) return await responseBytes(response, maxBytes);
+        const retryable = response.status === 429 || response.status >= 500;
+        if (!retryable || attempt === 2) throw new Error(`${response.status} ${response.statusText}`.trim());
+        await sleep(retryDelay(response, attempt));
+      } catch (error) {
+        if (error?.name === 'AbortError') throw new Error(`таймаут запроса ${Math.round(requestTimeoutMs / 1000)}с`);
+        if (attempt === 2 || !/^(?:5\d\d|429)\b/.test(error.message)) throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+    throw new Error('запрос не выполнен');
+  }
+
+  async function fetchText(url, options = {}) {
+    const bytes = await fetchBytes(url, options, {
+      accept: 'text/html,application/json,*/*',
+      maxBytes: maxTextResponseBytes
     });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText} for ${url}`);
-    return response.text();
+    return new TextDecoder().decode(bytes);
   }
 
   async function fetchArrayBuffer(url, options = {}) {
-    const response = await fetch(url, {
-      credentials: 'include',
-      ...options,
-      headers: {
-        accept: 'application/pdf,*/*',
-        ...(options.headers || {})
-      }
+    const bytes = await fetchBytes(url, options, {
+      accept: 'application/pdf,*/*',
+      maxBytes: maxPdfResponseBytes
     });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText} for ${url}`);
-    const buffer = await response.arrayBuffer();
-    const header = String.fromCharCode(...new Uint8Array(buffer.slice(0, 5)));
-    if (header !== '%PDF-') throw new Error(`not a PDF for ${url}`);
-    return buffer;
+    const header = String.fromCharCode(...bytes.slice(0, 5));
+    if (header !== '%PDF-') throw new Error('response is not a PDF');
+    return bytes.buffer;
   }
 
   function normalizeText(text) {
@@ -254,6 +343,7 @@
     const pdf = await loadingTask.promise;
 
     try {
+      if (pdf.numPages > 50) throw new Error('PDF содержит больше 50 страниц');
       const pageNumbers = Array.from({ length: pdf.numPages }, (_, index) => index + 1);
       const pages = await mapWithConcurrency(pageNumbers, 2, async (pageNumber) => {
         const page = await pdf.getPage(pageNumber);
@@ -318,7 +408,8 @@
       raw_title: fallbackRecord.raw_title || fallbackRecord.title || '',
       raw_amount: String(item.amount),
       item_index: String(item.itemIndex || ''),
-      __ozonSettlementKind: settlementKind || ''
+      __ozonSettlementKind: settlementKind || '',
+      parse_quality: 'complete'
     };
   }
 
@@ -326,7 +417,8 @@
     return {
       ...fallbackRecord,
       title: `Ozon PDF не разобран: ${fallbackRecord.title || fallbackRecord.marketplace_id || 'чек'}`,
-      raw_title: `${fallbackRecord.raw_title || fallbackRecord.title || ''} parse_error=${reason || 'unknown'}`.trim()
+      raw_title: `${fallbackRecord.raw_title || fallbackRecord.title || ''} parse_error=${reason || 'unknown'}`.trim(),
+      parse_quality: 'fallback'
     };
   }
 
@@ -403,10 +495,11 @@
       }
 
       if (!itemRows.length) {
-        deliveryRowsDropped += deliveryRows.length;
+        foldedRows.push(...receiptRows);
         continue;
       }
 
+      const unfoldedDeliveryRows = [];
       for (const sign of [1, -1]) {
         const signedDeliveryRows = deliveryRows.filter((row) => Math.sign(ozonAmountCents(row.amount)) === sign);
         const signedItemRows = itemRows.filter((row) => Math.sign(ozonAmountCents(row.amount)) === sign);
@@ -414,7 +507,7 @@
         const itemBaseCents = signedItemRows.reduce((sum, row) => sum + Math.abs(ozonAmountCents(row.amount)), 0);
 
         if (!deliveryCents || !itemBaseCents || !signedItemRows.length) {
-          deliveryRowsDropped += signedDeliveryRows.length;
+          unfoldedDeliveryRows.push(...signedDeliveryRows);
           continue;
         }
 
@@ -431,7 +524,7 @@
         deliveryRowsFolded += signedDeliveryRows.length;
       }
 
-      foldedRows.push(...itemRows);
+      foldedRows.push(...itemRows, ...unfoldedDeliveryRows);
     }
 
     return { rows: foldedRows, deliveryRowsFolded, deliveryRowsDropped };
@@ -441,19 +534,9 @@
     return row.receipt_url || row.marketplace_id || '';
   }
 
-  function ozonPositiveTitleKeys(rows) {
-    const keys = new Set();
-    for (const row of rows) {
-      if (ozonAmountCents(row.amount) > 0) keys.add(ozonDedupTitle(row.title));
-    }
-    return keys;
-  }
-
-  function hasSetOverlap(left, right) {
-    for (const value of left) {
-      if (right.has(value)) return true;
-    }
-    return false;
+  function ozonSettlementRowKey(row) {
+    const amount = ozonAmountCents(row.amount);
+    return [ozonDedupTitle(row.title), Math.sign(amount), Math.abs(amount)].join('\u0001');
   }
 
   function filterOzonRows(rows) {
@@ -463,6 +546,9 @@
     let prepaymentRowsDropped = 0;
     let duplicateRowsDropped = 0;
     let adjustmentRowsDropped = 0;
+    let aggregatePrepaymentRowsAdjusted = 0;
+    let aggregatePrepaymentRowsDropped = 0;
+    const supersededReceipts = new Set();
 
     for (const row of rows) {
       if (isOzonOperationalRow(row)) {
@@ -475,8 +561,6 @@
           adjustmentRowsDropped += 1;
           continue;
         }
-        directRows.push(row);
-        continue;
       }
 
       const orderKey = ozonOrderKey(row);
@@ -487,64 +571,67 @@
     const filteredRows = directRows.slice();
 
     for (const orderRows of rowsByOrder.values()) {
-      const rowsByUrl = new Map();
-      for (const row of orderRows) {
-        const url = ozonReceiptKey(row);
-        if (!rowsByUrl.has(url)) rowsByUrl.set(url, []);
-        rowsByUrl.get(url).push(row);
+      const fullRows = orderRows
+        .filter((row) => row.__ozonSettlementKind === 'full' && ozonAmountCents(row.amount) > 0)
+        .sort((left, right) => String(left.date || '').localeCompare(String(right.date || '')));
+      const fullAvailableCents = new Map(fullRows.map((row) => [row, ozonAmountCents(row.amount)]));
+      const suppressedPrepaymentRows = new Set();
+
+      for (const fullRow of fullRows) {
+        const match = orderRows
+          .filter((row) => row.parse_quality !== 'fallback'
+            && row.__ozonSettlementKind === 'prepayment'
+            && ozonAmountCents(row.amount) > 0
+            && ozonSettlementRowKey(row) === ozonSettlementRowKey(fullRow)
+            && String(row.date || '') <= String(fullRow.date || '')
+            && !suppressedPrepaymentRows.has(row))
+          .sort((left, right) => String(right.date || '').localeCompare(String(left.date || '')))[0];
+        if (!match) continue;
+        suppressedPrepaymentRows.add(match);
+        fullAvailableCents.set(fullRow, 0);
+        prepaymentRowsDropped += 1;
+        if (ozonReceiptKey(match)) supersededReceipts.add(ozonReceiptKey(match));
       }
 
-      const receiptGroups = [...rowsByUrl.entries()].map(([url, receiptRows]) => ({
-        url,
-        rows: receiptRows,
-        date: latestDate(receiptRows),
-        hasOnlyPositiveRows: receiptRows.every((row) => ozonAmountCents(row.amount) >= 0),
-        hasPrepaymentKind: receiptRows.some((row) => row.__ozonSettlementKind === 'prepayment'),
-        positiveTitleKeys: ozonPositiveTitleKeys(receiptRows)
-      }));
+      const fallbackResiduals = new Map(orderRows
+        .filter((row) => row.parse_quality === 'fallback'
+          && row.__ozonSettlementKind === 'prepayment'
+          && ozonAmountCents(row.amount) > 0)
+        .map((row) => [row, ozonAmountCents(row.amount)]));
 
-      const droppedPositiveTitleKeys = new Set();
-      const candidateRows = [];
-
-      for (const group of receiptGroups) {
-        const hasLaterPositiveOverlap = group.hasOnlyPositiveRows
-          && group.positiveTitleKeys.size > 0
-          && receiptGroups.some((otherGroup) => (
-            otherGroup.url !== group.url
-            && otherGroup.date > group.date
-            && hasSetOverlap(group.positiveTitleKeys, otherGroup.positiveTitleKeys)
-          ));
-
-        if (hasLaterPositiveOverlap) {
-          if (group.hasPrepaymentKind) prepaymentRowsDropped += group.rows.length;
-          else duplicateRowsDropped += group.rows.length;
-          for (const key of group.positiveTitleKeys) droppedPositiveTitleKeys.add(key);
-          continue;
+      for (const fullRow of fullRows) {
+        let remaining = fullAvailableCents.get(fullRow) || 0;
+        if (!remaining) continue;
+        const candidates = [...fallbackResiduals.keys()]
+          .filter((row) => String(row.date || '') <= String(fullRow.date || '') && fallbackResiduals.get(row) > 0)
+          .sort((left, right) => String(right.date || '').localeCompare(String(left.date || '')));
+        for (const fallbackRow of candidates) {
+          if (!remaining) break;
+          const residual = fallbackResiduals.get(fallbackRow);
+          const consumed = Math.min(residual, remaining);
+          fallbackResiduals.set(fallbackRow, residual - consumed);
+          remaining -= consumed;
         }
-
-        candidateRows.push(...group.rows);
+        fullAvailableCents.set(fullRow, remaining);
       }
 
-      const keptPositiveDatesByTitle = new Map();
-      for (const row of candidateRows) {
-        if (ozonAmountCents(row.amount) <= 0) continue;
-        const key = ozonDedupTitle(row.title);
-        if (!keptPositiveDatesByTitle.has(key)) keptPositiveDatesByTitle.set(key, []);
-        keptPositiveDatesByTitle.get(key).push(String(row.date || ''));
-      }
-
-      for (const row of candidateRows) {
-        const amountCents = ozonAmountCents(row.amount);
-        if (amountCents < 0) {
-          const key = ozonDedupTitle(row.title);
-          const positiveDates = keptPositiveDatesByTitle.get(key) || [];
-          const hasLaterPositive = positiveDates.some((date) => date > String(row.date || ''));
-          if (hasLaterPositive || (!positiveDates.length && droppedPositiveTitleKeys.has(key))) {
-            adjustmentRowsDropped += 1;
+      for (const row of orderRows) {
+        if (suppressedPrepaymentRows.has(row)) continue;
+        if (fallbackResiduals.has(row)) {
+          const originalCents = ozonAmountCents(row.amount);
+          const residualCents = fallbackResiduals.get(row);
+          if (!residualCents) {
+            aggregatePrepaymentRowsDropped += 1;
+            if (ozonReceiptKey(row)) supersededReceipts.add(ozonReceiptKey(row));
+            continue;
+          }
+          if (residualCents !== originalCents) {
+            aggregatePrepaymentRowsAdjusted += 1;
+            if (ozonReceiptKey(row)) supersededReceipts.add(ozonReceiptKey(row));
+            filteredRows.push({ ...row, amount: centsToAmount(residualCents), raw_amount: centsToAmount(residualCents) });
             continue;
           }
         }
-
         filteredRows.push(row);
       }
     }
@@ -558,7 +645,10 @@
       duplicateRowsDropped,
       adjustmentRowsDropped,
       deliveryRowsFolded: deliveryFolded.deliveryRowsFolded,
-      deliveryRowsDropped: deliveryFolded.deliveryRowsDropped
+      deliveryRowsDropped: deliveryFolded.deliveryRowsDropped,
+      aggregatePrepaymentRowsAdjusted,
+      aggregatePrepaymentRowsDropped,
+      supersededReceipts: [...supersededReceipts]
     };
   }
 
@@ -596,17 +686,33 @@
       items.push({ title, amount, itemIndex: items.length + 1 });
     }
 
-    if (!items.length) {
-      const total = extractOzonPdfTotal(normalized);
+    const total = extractOzonPdfTotal(normalized);
+    const itemTotal = items.reduce((sum, item) => sum + Math.abs(Number(item.amount) || 0), 0);
+    if (!items.length || (total && Math.abs(itemTotal - Math.abs(total)) > 0.01)) {
       if (!total) return [];
-      items.push({
-        title: `Ozon PDF: ${fallbackRecord.title || fallbackRecord.marketplace_id || 'чек'}`,
-        amount: total,
-        itemIndex: 1
+      const fallback = makeOzonRow({
+        item: {
+          title: `Ozon PDF не разобран: ${fallbackRecord.title || fallbackRecord.marketplace_id || 'чек'}`,
+          amount: Math.abs(total),
+          itemIndex: 1
+        },
+        date,
+        isReturn,
+        settlementKind,
+        fallbackRecord
       });
+      return [{
+        ...fallback,
+        raw_title: `${fallback.raw_title || ''} parse_error=receipt_total_mismatch`.trim(),
+        parse_quality: 'fallback'
+      }];
     }
 
-    return items.map((item) => makeOzonRow({ item, date, isReturn, settlementKind, fallbackRecord }));
+    const parseQuality = total ? 'complete' : 'unverified';
+    return items.map((item) => ({
+      ...makeOzonRow({ item, date, isReturn, settlementKind, fallbackRecord }),
+      parse_quality: parseQuality
+    }));
   }
 
   async function recordsFromOzonPdf(record) {
@@ -629,17 +735,23 @@
       };
     }
 
-    const concurrency = clampConcurrency(concurrencyOption, 8, 12);
+    const concurrency = clampConcurrency(concurrencyOption, 4, 6);
     const failed = [];
     let parsedReceipts = 0;
+    let unverifiedReceipts = 0;
     let completed = 0;
     sendProgress(`Ozon: PDF-разбор в ${concurrency} потока.`, 0, records.length);
 
     const results = await mapWithConcurrency(records, concurrency, async (record) => {
       try {
         const parsed = await recordsFromOzonPdf(record);
-        if (parsed.length) {
+        if (parsed.length && !parsed.some((row) => row.parse_quality === 'fallback')) {
           parsedReceipts += 1;
+          if (parsed.some((row) => row.parse_quality === 'unverified')) unverifiedReceipts += 1;
+          return { rows: parsed };
+        } else if (parsed.length) {
+          const failedItem = { record, reason: 'receipt_total_mismatch' };
+          failed.push(failedItem);
           return { rows: parsed };
         } else {
           const failedItem = { record, reason: 'no_items' };
@@ -679,10 +791,13 @@
 
     return {
       rows: filtered.rows,
+      supersededReceipts: filtered.supersededReceipts,
       stats: {
         receipts: records.length,
         parsedReceipts,
         failedReceipts: failed.length,
+        fallbackReceipts: failed.length,
+        unverifiedReceipts,
         itemRows: filtered.rows.length,
         rawItemRows: rawRows.length,
         duplicateRowsDropped: filtered.duplicateRowsDropped,
@@ -691,7 +806,8 @@
         adjustmentRowsDropped: filtered.adjustmentRowsDropped,
         deliveryRowsFolded: filtered.deliveryRowsFolded,
         deliveryRowsDropped: filtered.deliveryRowsDropped,
-        failedSamples: failed.slice(0, 5).map((item) => item.record.marketplace_id || item.record.title || '')
+        aggregatePrepaymentRowsAdjusted: filtered.aggregatePrepaymentRowsAdjusted,
+        aggregatePrepaymentRowsDropped: filtered.aggregatePrepaymentRowsDropped
       }
     };
   }
@@ -918,6 +1034,8 @@
     const recordsByKey = new Map();
     const visitedNextPages = new Set();
     let pagesFetched = 0;
+    let limitReached = false;
+    const listErrors = [];
 
     function remember(records) {
       for (const record of records) {
@@ -934,6 +1052,7 @@
 
     function claimNextPage(rawNextPage) {
       const nextPage = normalizeText(rawNextPage);
+      if (nextPage && pagesFetched >= maxPages) limitReached = true;
       if (!nextPage || visitedNextPages.has(nextPage) || pagesFetched >= maxPages) return null;
       visitedNextPages.add(nextPage);
       pagesFetched += 1;
@@ -941,7 +1060,12 @@
     }
 
     async function collectList(startUrl) {
-      const firstPageText = await fetchText(startUrl).catch(() => '');
+      let firstPageText = '';
+      try {
+        firstPageText = await fetchText(startUrl);
+      } catch (error) {
+        listErrors.push(`${new URL(startUrl).pathname}: ${error.message}`);
+      }
       if (!firstPageText) return;
 
       if (remember(extractOzonCheques(firstPageText))) return;
@@ -952,7 +1076,13 @@
         if (!claimed) break;
 
         const apiUrl = `${location.origin}/api/entrypoint-api.bx/page/json/v2?url=${encodeURIComponent(claimed.nextPage)}`;
-        const text = await fetchText(apiUrl);
+        let text;
+        try {
+          text = await fetchText(apiUrl);
+        } catch (error) {
+          listErrors.push(`${new URL(startUrl).pathname}, страница ${claimed.pageNumber}: ${error.message}`);
+          break;
+        }
         const shouldStop = remember(extractOzonCheques(text));
         sendProgress(`Ozon: найдено ${recordsByKey.size}, API-страница ${claimed.pageNumber}.`, claimed.pageNumber, maxPages);
         if (shouldStop) {
@@ -997,6 +1127,10 @@
     sendProgress(`Ozon: найдено ссылок на чеки ${records.length}, начинаю PDF-разбор.`, 0, records.length);
     const result = await rowsFromOzonPdfs(records, parsePdf, pdfConcurrency);
     result.stats.incrementalStopped = knownState.hit;
+    result.stats.apiPages = pagesFetched;
+    result.stats.limitReached = limitReached && !knownState.hit;
+    result.stats.paginationIncomplete = listErrors.length > 0;
+    result.stats.paginationError = listErrors.slice(0, 3).join('; ');
     return result;
   }
 
@@ -1093,16 +1227,13 @@
     url.searchParams.set('receiptsPerPage', String(pageSize));
     url.searchParams.set('nextReceiptUid', nextReceiptUid || '');
 
-    const response = await fetch(url.toString(), {
-      credentials: 'include',
+    const text = await fetchText(url.toString(), {
       headers: {
         accept: 'application/json, text/plain, */*',
         authorization: `Bearer ${token}`
       }
     });
-
-    if (!response.ok) throw new Error(`Wildberries API returned ${response.status}`);
-    return normalizeWbReceiptPayload(await response.json());
+    return normalizeWbReceiptPayload(JSON.parse(text));
   }
 
   function wbPageSizeCandidates(pageSize) {
@@ -1174,7 +1305,8 @@
         receipts: receiptsByUid.size,
         apiPages: pagesFetched,
         pageSize: activePageSize,
-        incrementalStopped: knownState.hit
+        incrementalStopped: knownState.hit,
+        limitReached: pagesFetched >= maxPages && Boolean(nextReceiptUid) && !knownState.hit
       }
     };
   }
@@ -1240,25 +1372,14 @@
     return headers;
   }
 
-  function yandexRetryDelay(response, attempt) {
-    const retryAfter = Number(response.headers.get('retry-after'));
-    if (Number.isFinite(retryAfter) && retryAfter > 60) {
-      throw new Error(`Yandex resolve 429: лимит Яндекса, повторите примерно через ${Math.ceil(retryAfter / 60)} мин`);
-    }
-    if (Number.isFinite(retryAfter) && retryAfter > 0) return Math.min(15000, retryAfter * 1000);
-    return Math.min(15000, 1500 * (2 ** attempt));
-  }
-
   async function fetchYandexResolve(resolver, params, path, pauseMs = 0) {
     const url = new URL('/api/resolve/', location.origin);
     url.searchParams.set('r', resolver);
     const retpath = new URL(path, location.origin).href;
 
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      if (pauseMs > 0 && attempt === 0) await sleep(pauseMs);
-      const response = await fetch(url.toString(), {
+    if (pauseMs > 0) await sleep(pauseMs);
+    const text = await fetchText(url.toString(), {
         method: 'POST',
-        credentials: 'include',
         headers: {
           accept: '*/*',
           'content-type': 'application/json',
@@ -1271,15 +1392,11 @@
         path
       })
     });
-
-      if (response.ok) return response.json();
-      if (response.status !== 429 || attempt === 2) throw new Error(`Yandex resolve ${response.status}`);
-      const delay = yandexRetryDelay(response, attempt);
-      sendProgress(`Яндекс Маркет: 429, пауза ${Math.round(delay / 1000)}с.`);
-      await sleep(delay);
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error('Yandex resolve: некорректный JSON');
     }
-
-    throw new Error('Yandex resolve failed');
   }
 
   async function fetchYandexResolveAny(resolvers, params, path, pauseMs = 0) {
@@ -1459,6 +1576,11 @@
     let pageToken = extractYandexPageTokenFromHtml(startHtml);
     let pagesFetched = orderIds.size ? 1 : 0;
     const shouldTryNext = hasYandexNextOrdersPage(startHtml);
+    let limitReached = false;
+    let paginationError = '';
+    if (shouldTryNext && !pageToken && !stopByKnown) {
+      paginationError = 'есть следующая страница, но её токен не распознан';
+    }
 
     if (pageToken && shouldTryNext && !stopByKnown) {
       while (pagesFetched < maxPages) {
@@ -1480,13 +1602,15 @@
           pageToken = page.pageToken;
           if (apiPauseMs > 0) await sleep(apiPauseMs);
         } catch (error) {
+          paginationError = error.message;
           sendProgress(`Яндекс Маркет: пагинация недоступна, беру найденные заказы (${error.message}).`);
           break;
         }
       }
+      if (pagesFetched >= maxPages && pageToken && !stopByKnown) limitReached = true;
     }
 
-    if (!orderIds.size) {
+    if (!orderIds.size || paginationError) {
       for (const id of await scrollYandexOrders(Math.min(maxPages, 200))) orderIds.add(id);
     }
 
@@ -1502,7 +1626,10 @@
         stats: {
           orders: ids.length,
           apiPages: pagesFetched,
-          incrementalStopped: knownState.hit
+          incrementalStopped: knownState.hit,
+          limitReached,
+          paginationIncomplete: Boolean(paginationError),
+          paginationError
         }
       };
     }
@@ -1553,13 +1680,12 @@
     await collectArchivedFlag(ids, false);
     if (pendingOrderIds.size) await collectArchivedFlag([...pendingOrderIds], true);
 
-    const failedOrders = [...failedByOrder.entries()]
-      .filter(([orderId]) => !pendingOrderIds.has(orderId))
-      .map(([orderId, error]) => `${orderId}: ${error.trim()}`);
+    const failedOrders = [...failedByOrder.keys()]
+      .filter((orderId) => !pendingOrderIds.has(orderId))
+      .length;
 
     if (!receiptsByUrl.size) {
-      const details = failedOrders.slice(0, 3).join('; ');
-      throw new Error(`Яндекс Маркет: ссылки на чеки не найдены. Заказов проверено: ${ids.length}.${details ? ` Ошибки: ${details}.` : ''}`);
+      throw new Error(`Яндекс Маркет: ссылки на чеки не найдены. Заказов проверено: ${ids.length}, ошибок: ${failedOrders}.`);
     }
 
     return {
@@ -1569,10 +1695,12 @@
         receipts: receiptsByUrl.size,
         apiPages: pagesFetched,
         incrementalStopped: knownState.hit,
+        limitReached,
+        paginationIncomplete: Boolean(paginationError),
+        paginationError,
         archivedOrders,
         noReceiptOrders,
-        failedOrders: failedOrders.length,
-        failedOrderSamples: failedOrders.slice(0, 10)
+        failedOrders
       }
     };
   }
@@ -1618,4 +1746,14 @@
 
     return true;
   });
+
+  if (globalThis.MarketTratTestMode) {
+    globalThis.MarketTratOzonTest = Object.freeze({
+      filterOzonRows,
+      foldDeliveryIntoRows,
+      parseOzonPdfRows,
+      extractYandexPageTokenFromHtml,
+      hasYandexNextOrdersPage
+    });
+  }
 })();

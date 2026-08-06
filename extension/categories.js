@@ -352,6 +352,25 @@
       'грабли', 'садовая пила'
     ]]
   ];
+  // These are deliberately small context rules, rather than a second taxonomy.
+  // The general lexicon is useful for recall, but a few product names contain a
+  // word that means something completely different outside of its usual aisle.
+  const contextRules = [
+    ['Бытовая химия', 12, ['крем для обуви', 'крем обувной', 'воск для обуви', 'соль для посудомойки']],
+    ['Мебель', 12, ['кофейный столик', 'журнальный столик', 'чайный столик']],
+    ['Ремонт', 12, ['мозаика для ванной', 'плитка мозаика', 'мозаика настенная']],
+    ['Продукты', 10, ['мясо для шашлыка', 'шашлык из мяса', 'чай зеленый', 'зеленый чай']],
+    ['Сад', 11, ['горшок для цветов', 'горшок для цветка', 'кашпо для цветов']],
+    ['Красота и уход', 11, ['масло для волос', 'масло волос', 'крем для лица', 'крем для рук']],
+    ['Бытовая техника', 11, ['чайник электрический']],
+    ['Хобби и творчество', 11, ['пластилин для лепки', 'пластилин для творчества', 'мыло для лепки']]
+  ];
+  const negativeContextRules = [
+    ['Продукты', 'кофейный столик', 12],
+    ['Хобби и творчество', 'мозаика для ванной', 12],
+    ['Игрушки', 'пластилин для лепки', 12],
+    ['Красота и уход', 'крем для обуви', 12]
+  ];
   let remoteRules = [];
 
   function normalize(text) {
@@ -364,36 +383,137 @@
       .trim();
   }
 
-  function matches(words, padded, token) {
+  function matchToken(words, padded, token) {
     const normalized = normalize(token);
-    if (!normalized) return false;
-    if (normalized.includes(' ')) return padded.includes(` ${normalized} `);
-    return words.some((word) => word === normalized || (normalized.length >= 5 && word.startsWith(normalized)));
+    if (!normalized) return null;
+    if (normalized.includes(' ')) {
+      return padded.includes(` ${normalized} `) ? 'phrase' : null;
+    }
+    if (words.some((word) => word === normalized)) return 'exact';
+    return normalized.length >= 5 && words.some((word) => word.startsWith(normalized)) ? 'stem' : null;
   }
 
-  function guessSpendCategory(title) {
+  function titleFrom(input) {
+    if (typeof input === 'string' || typeof input === 'number') return String(input);
+    if (!input || typeof input !== 'object') return '';
+    // `raw_title` is used by collector rows. The remaining aliases make the
+    // classifier safe to use before a row has been normalised by the app.
+    return [input.title, input.raw_title, input.name, input.description, input.text]
+      .filter((part, index, parts) => part && parts.indexOf(part) === index)
+      .join(' ');
+  }
+
+  function scoreFor(weight, token) {
+    const wordCount = normalize(token).split(' ').filter(Boolean).length;
+    return weight + wordCount + (wordCount > 1 ? 3 : 0);
+  }
+
+  function ruleEntries() {
+    // A local pack is allowed to refine the embedded lexicon. Identical
+    // category/token pairs are alternatives, not two independent signals: use
+    // the strongest source once and retain it in the explanation.
+    const unique = new Map();
+    for (const [source, rulePack] of [['local', remoteRules], ['builtin', rules], ['context', contextRules]]) {
+      for (const [category, weight, tokens] of rulePack) {
+        for (const rawToken of tokens) {
+          const token = normalize(rawToken);
+          if (!category || !token) continue;
+          const key = `${category}\u0000${token}`;
+          const entry = { category, weight, token, source };
+          const previous = unique.get(key);
+          if (!previous || entry.weight > previous.weight || (entry.weight === previous.weight && source === 'local')) {
+            unique.set(key, entry);
+          }
+        }
+      }
+    }
+    return [...unique.values()];
+  }
+
+  function confidenceFor(top, second, accepted) {
+    if (!top) return 0;
+    const margin = Math.max(0, top.score - (second?.score || 0));
+    const support = Math.min(1, top.score / 22);
+    const separation = Math.min(1, margin / 10);
+    const evidenceBonus = Math.min(0.15, top.evidence.length * 0.04);
+    const raw = 0.28 + support * 0.37 + separation * 0.2 + evidenceBonus;
+    return Number(Math.max(0.05, Math.min(0.99, accepted ? raw : raw * 0.58)).toFixed(2));
+  }
+
+  function classifySpendCategory(input) {
+    const title = titleFrom(input);
     const normalized = normalize(title);
-    if (!normalized || /^(ozon pdf не разобран|wildberries receipt)/.test(normalized)) return 'unknown';
+    const emptyResult = {
+      category: 'unknown', suggestedCategory: 'unknown', confidence: 0,
+      evidence: [], candidates: [], needsReview: true, method: 'lexicon-v2'
+    };
+    if (!normalized || /^(ozon pdf не разобран|wildberries receipt)/.test(normalized)) return emptyResult;
 
     const words = normalized.split(' ');
     const padded = ` ${normalized} `;
-    const scoreByCategory = new Map();
-
-    for (const [category, weight, tokens] of [...remoteRules, ...rules]) {
-      let score = 0;
-      for (const token of tokens) {
-        const tokenWords = normalize(token).split(' ');
-        if (matches(words, padded, token)) score += weight + tokenWords.length + (tokenWords.length > 1 ? 3 : 0);
-      }
-      if (score) scoreByCategory.set(category, (scoreByCategory.get(category) || 0) + score);
+    const byCategory = new Map();
+    for (const entry of ruleEntries()) {
+      const kind = matchToken(words, padded, entry.token);
+      if (!kind) continue;
+      const evidence = { token: entry.token, kind, source: entry.source, score: scoreFor(entry.weight, entry.token) };
+      const candidate = byCategory.get(entry.category) || { category: entry.category, score: 0, evidence: [] };
+      candidate.score += evidence.score;
+      candidate.evidence.push(evidence);
+      byCategory.set(entry.category, candidate);
     }
 
-    const scores = [...scoreByCategory.entries()];
-    scores.sort((a, b) => b[1] - a[1]);
-    if (!scores.length && /\s\|\s[\p{L}][\p{L}\s.-]{2,}$/u.test(String(title || ''))) return 'Книги';
-    if (!scores.length || scores[0][1] < 7) return 'unknown';
-    if (scores[1] && scores[0][1] - scores[1][1] < 3) return 'unknown';
-    return scores[0][0];
+    // Negative context never creates a category by itself. It only removes a
+    // misleading generic signal (for example, food's “кофейный” in a table).
+    for (const [category, token, penalty] of negativeContextRules) {
+      if (!matchToken(words, padded, token)) continue;
+      const candidate = byCategory.get(category);
+      if (!candidate) continue;
+      candidate.score -= penalty;
+      candidate.evidence.push({ token: normalize(token), kind: 'negative', source: 'context', score: -penalty });
+    }
+
+    const candidates = [...byCategory.values()]
+      .map((candidate) => ({
+        ...candidate,
+        score: Number(candidate.score.toFixed(2)),
+        evidence: candidate.evidence.sort((a, b) => b.score - a.score || a.token.localeCompare(b.token))
+      }))
+      .sort((a, b) => b.score - a.score || a.category.localeCompare(b.category));
+
+    if (!candidates.length && /\s\|\s[\p{L}][\p{L}\s.-]{2,}$/u.test(title)) {
+      return {
+        category: 'Книги', suggestedCategory: 'Книги', confidence: 0.62,
+        evidence: [{ token: '| автор', kind: 'phrase', source: 'fallback', score: 7 }],
+        candidates: [{ category: 'Книги', score: 7, evidence: [{ token: '| автор', kind: 'phrase', source: 'fallback', score: 7 }] }],
+        needsReview: true, method: 'lexicon-v2'
+      };
+    }
+
+    const [top, second] = candidates;
+    if (!top) return emptyResult;
+    const threshold = 7;
+    const margin = top.score - (second?.score || 0);
+    const accepted = top.score >= threshold && (!second || margin >= 3);
+    const confidence = confidenceFor(top, second, accepted);
+    const positiveEvidence = top.evidence.filter((item) => item.score > 0);
+    const weakSingleWord = positiveEvidence.length === 1
+      && positiveEvidence[0].kind !== 'phrase'
+      && top.score < 12;
+    return {
+      category: accepted ? top.category : 'unknown',
+      suggestedCategory: top.category,
+      confidence,
+      evidence: top.evidence,
+      candidates: candidates.slice(0, 5),
+      // A displayed category with weak support is still useful, but should be
+      // surfaced to the user as a suggestion instead of silently trusted.
+      needsReview: !accepted || confidence < 0.64 || weakSingleWord || Boolean(second && margin < 7),
+      method: 'lexicon-v2'
+    };
+  }
+
+  function guessSpendCategory(title) {
+    return classifySpendCategory(title).category;
   }
 
   function normalizeRemoteRule(rule) {
@@ -413,6 +533,7 @@
   }
 
   root.guessSpendCategory = guessSpendCategory;
+  root.classifySpendCategory = classifySpendCategory;
   root.setSpendCategoryRules = setSpendCategoryRules;
-  if (typeof module !== 'undefined') module.exports = { guessSpendCategory, setSpendCategoryRules };
+  if (typeof module !== 'undefined') module.exports = { classifySpendCategory, guessSpendCategory, setSpendCategoryRules };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

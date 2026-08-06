@@ -1,6 +1,5 @@
 (function exposeUpdate(root) {
   const releaseApiUrl = 'https://api.github.com/repos/malyarq/market-trat/releases/latest';
-  const categoryPackApiUrl = 'https://api.github.com/repos/malyarq/market-trat/contents/extension/category-rules.json?ref=main';
   const latestReleaseUrl = 'https://github.com/malyarq/market-trat/releases/latest';
   const updateHelpUrl = 'https://github.com/malyarq/market-trat#%D0%BE%D0%B1%D0%BD%D0%BE%D0%B2%D0%BB%D0%B5%D0%BD%D0%B8%D0%B5';
 
@@ -24,27 +23,13 @@
     return compareVersions(latest, current) > 0;
   }
 
-  function decodeBase64Utf8(value) {
-    const clean = String(value || '').replace(/\s+/g, '');
-    if (typeof Buffer !== 'undefined') return Buffer.from(clean, 'base64').toString('utf8');
-    const binary = root.atob(clean);
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    return new TextDecoder().decode(bytes);
-  }
-
-  function parseGithubContentJson(json) {
-    return JSON.parse(decodeBase64Utf8(json?.content || ''));
-  }
-
   const exported = {
     releaseApiUrl,
-    categoryPackApiUrl,
     latestReleaseUrl,
     updateHelpUrl,
     normalizeVersion,
     compareVersions,
-    isNewerVersion,
-    parseGithubContentJson
+    isNewerVersion
   };
 
   root.MarketTratUpdate = exported;
