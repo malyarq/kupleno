@@ -1,9 +1,35 @@
 const assert = require('node:assert/strict');
-const { allowedReceiptUrl, parseWbReceiptItems, wbOperationType } = require('./background.js');
+const {
+  allowedReceiptUrl,
+  isWildberriesReceiptsPageReady,
+  parseWbReceiptItems,
+  wbOperationType
+} = require('./background.js');
 
 assert.equal(allowedReceiptUrl('https://receipt.wb.ru/receipt/123'), 'https://receipt.wb.ru/receipt/123');
 assert.throws(() => allowedReceiptUrl('https://evil.example/collect'), /запрещённый адрес чека/);
 assert.throws(() => allowedReceiptUrl('http://receipt.wb.ru/receipt/123'), /запрещённый адрес чека/);
+
+assert.equal(isWildberriesReceiptsPageReady({
+  url: 'https://www.wildberries.ru/lk/receipts/get',
+  readyState: 'complete',
+  challenge: false
+}), true);
+assert.equal(isWildberriesReceiptsPageReady({
+  url: 'https://www.wildberries.ru/lk/receipts/get',
+  readyState: 'complete',
+  challenge: true
+}), false);
+assert.equal(isWildberriesReceiptsPageReady({
+  url: 'https://www.wildberries.ru/lk/receipts/get',
+  readyState: 'loading',
+  challenge: false
+}), false);
+assert.equal(isWildberriesReceiptsPageReady({
+  url: 'https://www.wildberries.ru/lk/myorders/archive',
+  readyState: 'complete',
+  challenge: false
+}), false);
 
 function wbItem(title, amount) {
   return `

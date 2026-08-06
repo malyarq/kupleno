@@ -290,6 +290,39 @@ async function waitForTabComplete(tabId, timeoutMs = 30000) {
   return chromeCall(api.tabs.get, tabId);
 }
 
+function isWildberriesReceiptsPageReady(state) {
+  if (!state || state.readyState !== 'complete' || state.challenge) return false;
+  try {
+    const url = new URL(state.url || '');
+    return /^(?:www\.)?wildberries\.ru$/i.test(url.hostname)
+      && url.pathname === '/lk/receipts/get';
+  } catch {
+    return false;
+  }
+}
+
+async function wildberriesPageState(tabId) {
+  const [execution] = await chromeCall(api.scripting.executeScript, {
+    target: { tabId },
+    func: () => ({
+      url: location.href,
+      readyState: document.readyState,
+      challenge: /проверяем браузер|checking your browser/i.test(document.body?.innerText || '')
+    })
+  });
+  return execution?.result || null;
+}
+
+async function waitForWildberriesReceiptsPage(tabId, timeoutMs = 20000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const state = await wildberriesPageState(tabId).catch(() => null);
+    if (isWildberriesReceiptsPageReady(state)) return;
+    await sleep(500);
+  }
+  throw new Error('Wildberries: страница чеков не прошла проверку браузера. Откройте её и повторите сбор.');
+}
+
 async function getOrCreateTab(source) {
   const configs = {
     ozon: {
@@ -312,8 +345,10 @@ async function getOrCreateTab(source) {
     const tabs = await queryTabs(pattern);
     const exact = tabs.find((tab) => isPreferredTab(tab, source, config.preferredPath));
     if (exact) {
+      const completeTab = await waitForTabComplete(exact.id);
+      if (source === 'wildberries') await waitForWildberriesReceiptsPage(exact.id);
       return {
-        tab: await waitForTabComplete(exact.id),
+        tab: completeTab,
         created: false
       };
     }
@@ -323,10 +358,17 @@ async function getOrCreateTab(source) {
     url: config.preferredPath,
     active: false
   });
-  return {
-    tab: await waitForTabComplete(tab.id),
-    created: true
-  };
+  try {
+    const completeTab = await waitForTabComplete(tab.id);
+    if (source === 'wildberries') await waitForWildberriesReceiptsPage(tab.id);
+    return {
+      tab: completeTab,
+      created: true
+    };
+  } catch (error) {
+    await chromeCall(api.tabs.remove, tab.id).catch(() => null);
+    throw error;
+  }
 }
 
 async function closeManagedTab(managedTab, source) {
@@ -1471,6 +1513,7 @@ if (typeof module !== 'undefined') {
   module.exports = {
     allowedReceiptUrl,
     parseWbReceiptItems,
+    isWildberriesReceiptsPageReady,
     wbOperationType,
     filterYandexRows,
     rowsFromYandexReceiptHtml
