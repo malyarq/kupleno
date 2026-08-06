@@ -1,16 +1,176 @@
+if (typeof importScripts === 'function') {
+  importScripts('collect-job-store.js');
+  importScripts('collect-result-store.js');
+} else if (typeof require === 'function') {
+  globalThis.MarketTratCollectJobStore = require('./collect-job-store.js');
+  globalThis.MarketTratCollectResultStore = require('./collect-result-store.js');
+}
+
 const api = globalThis.chrome;
 const collectJobs = new Map();
-let nextCollectJobId = 1;
+let collectJobGeneration = 0;
+const workerInstanceId = globalThis.crypto?.randomUUID?.()
+  || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+const collectJobStorePromise = Promise.resolve(
+  globalThis.MarketTratCollectJobStore.createCollectJobStore({
+    session: api?.storage?.session,
+    workerId: workerInstanceId
+  })
+);
+const collectResultStorePromise = Promise.resolve(
+  globalThis.MarketTratCollectResultStore.createCollectResultStore({
+    indexedDB: globalThis.indexedDB
+  })
+);
+let collectJobPersistenceQueue = Promise.resolve();
+
+function createCollectJobId() {
+  return globalThis.crypto?.randomUUID?.()
+    || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function enqueueCollectJobPersistence(operation) {
+  const queued = collectJobPersistenceQueue.then(operation, operation);
+  collectJobPersistenceQueue = queued.catch(() => undefined);
+  return queued;
+}
+
+function persistenceError(error) {
+  const detail = error?.message ? `: ${error.message}` : '';
+  return new Error(`Не удалось надёжно сохранить результат сбора${detail}`);
+}
+
+function persistCollectJob(jobId, job) {
+  return enqueueCollectJobPersistence(async () => {
+    const [jobStore, resultStore] = await Promise.all([
+      collectJobStorePromise,
+      collectResultStorePromise
+    ]);
+    if (job.status === 'done') {
+      if (!job.result || typeof job.result !== 'object') {
+        throw new Error('Готовый результат сбора повреждён.');
+      }
+      try {
+        await resultStore.save(jobId, job.result);
+        await jobStore.save(jobId, job);
+      } catch (error) {
+        throw persistenceError(error);
+      }
+      return;
+    }
+    await jobStore.save(jobId, job);
+  });
+}
+
+function removePersistedCollectJob(jobId) {
+  return enqueueCollectJobPersistence(async () => {
+    const [jobStore, resultStore] = await Promise.all([
+      collectJobStorePromise,
+      collectResultStorePromise
+    ]);
+    await jobStore.remove(jobId);
+    await resultStore.remove(jobId);
+  });
+}
+
+function clearCollectJobs() {
+  collectJobGeneration += 1;
+  collectJobs.clear();
+  return enqueueCollectJobPersistence(async () => {
+    const [jobStore, resultStore] = await Promise.all([
+      collectJobStorePromise,
+      collectResultStorePromise
+    ]);
+    await jobStore.clear();
+    await resultStore.clear();
+  });
+}
+
+function cleanupPersistedCollectJobs() {
+  return enqueueCollectJobPersistence(async () => {
+    const [jobStore, resultStore] = await Promise.all([
+      collectJobStorePromise,
+      collectResultStorePromise
+    ]);
+    const removedJobIds = await jobStore.cleanup();
+    for (const jobId of removedJobIds) collectJobs.delete(jobId);
+    await Promise.all(removedJobIds.map((jobId) => resultStore.remove(jobId)));
+    await resultStore.cleanup();
+  });
+}
+
+async function collectJobResponse(jobId) {
+  const id = String(jobId || '');
+  let job = collectJobs.get(id);
+  const [jobStore, resultStore] = await Promise.all([
+    collectJobStorePromise,
+    collectResultStorePromise
+  ]);
+  if (!job) {
+    job = await jobStore.load(id);
+    if (jobStore.wasInterrupted(job)) {
+      await removePersistedCollectJob(id);
+      return {
+        ok: true,
+        status: 'error',
+        error: 'Сбор был прерван перезапуском фонового процесса. Запустите его ещё раз; прежний отчёт не изменён.'
+      };
+    }
+  }
+  if (!job) return { ok: false, error: 'Задача сбора не найдена. Запустите сбор заново.' };
+  if (job.status === 'running') return { ok: true, status: 'running' };
+
+  let result = null;
+  if (job.status === 'done') {
+    result = job.result || await resultStore.load(id);
+    if (!result) {
+      await removePersistedCollectJob(id);
+      return {
+        ok: true,
+        status: 'error',
+        error: 'Готовый результат сбора не удалось восстановить. Запустите сбор ещё раз.'
+      };
+    }
+  }
+  if (job.status === 'done') return { ok: true, status: 'done', ...result };
+  return { ok: true, status: 'error', error: job.error };
+}
+
+async function acknowledgeCollectJob(jobId) {
+  const id = String(jobId || '');
+  if (!id) throw new Error('Не указан идентификатор задачи сбора.');
+  collectJobs.delete(id);
+  await removePersistedCollectJob(id);
+}
+
+if (api?.storage?.session && globalThis.indexedDB) {
+  cleanupPersistedCollectJobs().catch((error) => {
+    console.error('Не удалось очистить устаревшие задачи сбора:', error);
+  });
+}
 
 async function openAppPage() {
   const url = api.runtime.getURL('app.html');
-  const tabs = await chromeCall(api.tabs.query, { url }).catch(() => []);
-  if (tabs[0]?.id) {
-    await chromeCall(api.tabs.update, tabs[0].id, { active: true });
-    if (tabs[0].windowId !== undefined) {
-      await chromeCall(api.windows.update, tabs[0].windowId, { focused: true }).catch(() => null);
+  if (typeof api.runtime.getContexts === 'function') {
+    const contexts = await api.runtime.getContexts({
+      contextTypes: ['TAB'],
+      documentUrls: [url]
+    }).catch(() => []);
+    const appContext = contexts.find((context) => context.tabId >= 0);
+    if (appContext) {
+      await chromeCall(api.tabs.update, appContext.tabId, { active: true });
+      if (appContext.windowId >= 0) {
+        await chromeCall(api.windows.update, appContext.windowId, { focused: true }).catch(() => null);
+      }
+      return;
     }
-    return;
+  } else if (globalThis.clients?.matchAll) {
+    const clients = await globalThis.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const appClient = clients.find((client) => client.url === url);
+    if (appClient) {
+      await appClient.focus();
+      return;
+    }
   }
   await chromeCall(api.tabs.create, { url, active: true });
 }
@@ -42,7 +202,8 @@ async function trackSourceProgress(source, work) {
     return {
       source,
       rows: result.rows || [],
-      stats: result.stats || {}
+      stats: result.stats || {},
+      supersededReceipts: Array.isArray(result.supersededReceipts) ? result.supersededReceipts : []
     };
   } catch (error) {
     emitProgress(`${progressSourceLabels[source]}: ошибка: ${error.message}`);
@@ -129,6 +290,39 @@ async function waitForTabComplete(tabId, timeoutMs = 30000) {
   return chromeCall(api.tabs.get, tabId);
 }
 
+function isWildberriesReceiptsPageReady(state) {
+  if (!state || state.readyState !== 'complete' || state.challenge) return false;
+  try {
+    const url = new URL(state.url || '');
+    return /^(?:www\.)?wildberries\.ru$/i.test(url.hostname)
+      && url.pathname === '/lk/receipts/get';
+  } catch {
+    return false;
+  }
+}
+
+async function wildberriesPageState(tabId) {
+  const [execution] = await chromeCall(api.scripting.executeScript, {
+    target: { tabId },
+    func: () => ({
+      url: location.href,
+      readyState: document.readyState,
+      challenge: /проверяем браузер|checking your browser/i.test(document.body?.innerText || '')
+    })
+  });
+  return execution?.result || null;
+}
+
+async function waitForWildberriesReceiptsPage(tabId, timeoutMs = 20000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const state = await wildberriesPageState(tabId).catch(() => null);
+    if (isWildberriesReceiptsPageReady(state)) return;
+    await sleep(500);
+  }
+  throw new Error('Wildberries: страница чеков не прошла проверку браузера. Откройте её и повторите сбор.');
+}
+
 async function getOrCreateTab(source) {
   const configs = {
     ozon: {
@@ -151,8 +345,10 @@ async function getOrCreateTab(source) {
     const tabs = await queryTabs(pattern);
     const exact = tabs.find((tab) => isPreferredTab(tab, source, config.preferredPath));
     if (exact) {
+      const completeTab = await waitForTabComplete(exact.id);
+      if (source === 'wildberries') await waitForWildberriesReceiptsPage(exact.id);
       return {
-        tab: await waitForTabComplete(exact.id),
+        tab: completeTab,
         created: false
       };
     }
@@ -162,10 +358,17 @@ async function getOrCreateTab(source) {
     url: config.preferredPath,
     active: false
   });
-  return {
-    tab: await waitForTabComplete(tab.id),
-    created: true
-  };
+  try {
+    const completeTab = await waitForTabComplete(tab.id);
+    if (source === 'wildberries') await waitForWildberriesReceiptsPage(tab.id);
+    return {
+      tab: completeTab,
+      created: true
+    };
+  } catch (error) {
+    await chromeCall(api.tabs.remove, tab.id).catch(() => null);
+    throw error;
+  }
 }
 
 async function closeManagedTab(managedTab, source) {
@@ -185,8 +388,8 @@ async function ensureContentScript(tabId) {
 async function collectFromTab(source, options) {
   const managedTab = await getOrCreateTab(source);
   const tab = managedTab.tab;
-  await ensureContentScript(tab.id);
   try {
+    await ensureContentScript(tab.id);
     const response = await chromeCall(api.tabs.sendMessage, tab.id, {
       type: 'SPEND_COLLECT_SOURCE',
       source,
@@ -206,19 +409,21 @@ async function collectFromTab(source, options) {
 async function collectFromTabKeepOpen(source, options) {
   const managedTab = await getOrCreateTab(source);
   const tab = managedTab.tab;
-  await ensureContentScript(tab.id);
-  const response = await chromeCall(api.tabs.sendMessage, tab.id, {
-    type: 'SPEND_COLLECT_SOURCE',
-    source,
-    options
-  });
-
-  if (!response?.ok) {
+  try {
+    await ensureContentScript(tab.id);
+    const response = await chromeCall(api.tabs.sendMessage, tab.id, {
+      type: 'SPEND_COLLECT_SOURCE',
+      source,
+      options
+    });
+    if (!response?.ok) {
+      throw new Error(response?.error || `${source}: не удалось собрать данные`);
+    }
+    return { response, managedTab };
+  } catch (error) {
     await closeManagedTab(managedTab, source);
-    throw new Error(response?.error || `${source}: не удалось собрать данные`);
+    throw error;
   }
-
-  return { response, managedTab };
 }
 
 function amountFromText(text) {
@@ -252,17 +457,83 @@ function stripTags(html) {
     .trim();
 }
 
-async function fetchText(url, options = {}) {
-  const response = await fetch(url, {
-    credentials: 'include',
-    ...options,
-    headers: {
-      accept: 'text/html,application/json,*/*',
-      ...(options.headers || {})
+const allowedReceiptHosts = new Set(['receipt.wb.ru', 'check.yandex.ru']);
+const maxReceiptResponseBytes = 10 * 1024 * 1024;
+const receiptRequestTimeoutMs = 25_000;
+
+function allowedReceiptUrl(value) {
+  const parsed = new URL(String(value || ''));
+  if (parsed.protocol !== 'https:' || !allowedReceiptHosts.has(parsed.hostname.toLowerCase())) {
+    throw new Error(`запрещённый адрес чека: ${parsed.hostname || value}`);
+  }
+  return parsed.href;
+}
+
+async function limitedResponseText(response) {
+  const announced = Number(response.headers.get('content-length'));
+  if (Number.isFinite(announced) && announced > maxReceiptResponseBytes) {
+    throw new Error('ответ чека больше допустимых 10 МБ');
+  }
+  if (!response.body?.getReader) {
+    const buffer = await response.arrayBuffer();
+    if (buffer.byteLength > maxReceiptResponseBytes) throw new Error('ответ чека больше допустимых 10 МБ');
+    return new TextDecoder().decode(buffer);
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let length = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > maxReceiptResponseBytes) {
+        await reader.cancel('response too large').catch(() => {});
+        throw new Error('ответ чека больше допустимых 10 МБ');
+      }
+      chunks.push(value);
     }
-  });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText} for ${url}`);
-  return response.text();
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+async function fetchText(url, options = {}) {
+  const safeUrl = allowedReceiptUrl(url);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), receiptRequestTimeoutMs);
+    try {
+      const response = await fetch(safeUrl, {
+        credentials: 'include',
+        ...options,
+        signal: controller.signal,
+        headers: {
+          accept: 'text/html,application/json,*/*',
+          ...(options.headers || {})
+        }
+      });
+      if (response.ok) return await limitedResponseText(response);
+      const retryable = response.status === 429 || response.status >= 500;
+      if (!retryable || attempt === 2) throw new Error(`${response.status} ${response.statusText}`.trim());
+      await sleep(750 * (2 ** attempt));
+    } catch (error) {
+      if (error?.name === 'AbortError') throw new Error('таймаут запроса чека 25с');
+      if (attempt === 2 || !/^(?:5\d\d|429)\b/.test(error.message)) throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+  throw new Error('запрос чека не выполнен');
 }
 
 function monthFromDate(date) {
@@ -283,7 +554,7 @@ function parseWbReceiptItems(html) {
     const costBlock = chunk.match(/products-cell_cost[\s\S]*?<div class="products-prop-value">([\s\S]*?)<\/div>/i)?.[1] || '';
     const amount = amountFromText(stripTags(costBlock));
 
-    if (title && amount && !isWbServiceItemTitle(title)) {
+    if (title && amount) {
       items.push({ title, amount, itemIndex: items.length + 1 });
     }
   }
@@ -303,6 +574,15 @@ function wbReceiptOperationLabel(html) {
   return '';
 }
 
+function wbOperationType(receipt, operationLabel) {
+  if (operationLabel === 'refund') return 'refund';
+  if (operationLabel === 'purchase') return 'purchase';
+  const operationTypeId = Number(receipt?.operationTypeId);
+  if (operationTypeId === 1) return 'purchase';
+  if (operationTypeId === 2) return 'refund';
+  throw new Error(`Wildberries: неизвестный тип операции ${receipt?.operationTypeId ?? 'не указан'}`);
+}
+
 function wbDate(rawDate) {
   const text = String(rawDate || '');
   if (!text) return '';
@@ -319,40 +599,53 @@ async function recordsFromWbReceipt(receipt) {
   let html = '';
   let items = [];
   let operationLabel = '';
+  let fallbackReason = '';
+  let expectedTotal = Math.abs(Number(receipt.operationSum) || 0);
 
   if (receiptUrl) {
-    html = await fetchText(receiptUrl).catch(() => '');
+    html = await fetchText(receiptUrl).catch((error) => {
+      fallbackReason = error.message;
+      return '';
+    });
     if (html) {
       items = parseWbReceiptItems(html);
       operationLabel = wbReceiptOperationLabel(html);
+      if (!items.length) fallbackReason = 'состав чека не распознан';
+      const parsedTotal = items.reduce((sum, item) => sum + Math.abs(Number(item.amount) || 0), 0);
+      if (items.length && expectedTotal && Math.abs(parsedTotal - expectedTotal) > 0.01) {
+        fallbackReason = `сумма состава ${parsedTotal.toFixed(2)} не совпала с итогом ${expectedTotal.toFixed(2)}`;
+        items = [];
+      }
     }
+  } else {
+    fallbackReason = 'ссылка на чек отсутствует';
   }
 
-  const operationTypeId = Number(receipt.operationTypeId);
-  const isReturn = operationTypeId !== 1 || operationLabel === 'refund';
-  const type = isReturn ? 'refund' : 'purchase';
+  const type = wbOperationType(receipt, operationLabel);
+  const isReturn = type === 'refund';
 
   if (!items.length) {
     const amount = Number(receipt.operationSum) || 0;
-    return [{
+    return { rows: [{
       source: 'wildberries',
       month: monthFromDate(date),
       date,
       amount: (isReturn ? -Math.abs(amount) : amount).toFixed(2),
       currency: receipt.currencyNameIso || 'RUB',
-      title: wbFallbackTitle(receipt),
+      title: `${wbFallbackTitle(receipt)} (состав не распознан)`,
       category: '',
       type,
       is_return: isReturn ? '1' : '0',
       marketplace_id: receipt.receiptUid || '',
       item_index: '1',
       receipt_url: receiptUrl,
-      raw_title: `operationTypeId=${receipt.operationTypeId || ''}`,
-      raw_amount: String(receipt.operationSum ?? '')
-    }];
+      raw_title: `operationTypeId=${receipt.operationTypeId || ''}; fallback=${fallbackReason}`,
+      raw_amount: String(receipt.operationSum ?? ''),
+      parse_quality: 'fallback'
+    }], fallbackReason };
   }
 
-  return items.map((item) => ({
+  return { rows: items.map((item) => ({
     source: 'wildberries',
     month: monthFromDate(date),
     date,
@@ -366,18 +659,24 @@ async function recordsFromWbReceipt(receipt) {
     item_index: String(item.itemIndex || ''),
     receipt_url: receiptUrl,
     raw_title: `operationTypeId=${receipt.operationTypeId || ''}`,
-    raw_amount: String(item.amount)
-  }));
+    raw_amount: String(item.amount),
+    parse_quality: expectedTotal ? 'complete' : 'unverified'
+  })), fallbackReason: '' };
 }
 
 async function rowsFromWbReceipts(receipts, concurrencyOption) {
-  const concurrency = clampConcurrency(concurrencyOption, 12, 24);
+  const concurrency = clampConcurrency(concurrencyOption, 4, 8);
   let completed = 0;
   let itemRows = 0;
+  let fallbackReceipts = 0;
+  let unverifiedReceipts = 0;
   emitProgress(`Wildberries: HTML-разбор в ${concurrency} потоков.`, 0, receipts.length);
 
   const results = await mapWithConcurrency(receipts, concurrency, async (receipt) => {
-    const rows = await recordsFromWbReceipt(receipt);
+    const result = await recordsFromWbReceipt(receipt);
+    const rows = result.rows;
+    if (result.fallbackReason) fallbackReceipts += 1;
+    if (rows.some((row) => row.parse_quality === 'unverified')) unverifiedReceipts += 1;
     completed += 1;
     itemRows += rows.length;
     if (completed === receipts.length || completed % 5 === 0) {
@@ -390,7 +689,17 @@ async function rowsFromWbReceipts(receipts, concurrencyOption) {
     return rows;
   });
 
-  return results.flat();
+  return {
+    rows: results.flat(),
+    stats: {
+      receipts: receipts.length,
+      parsedReceipts: receipts.length - fallbackReceipts,
+      failedReceipts: fallbackReceipts,
+      fallbackReceipts,
+      unverifiedReceipts,
+      itemRows
+    }
+  };
 }
 
 const yandexReceiptsResolver = 'src/resolvers/orderDocuments/resolveOrderReceiptsByOrderId:resolveOrderReceiptsByOrderId';
@@ -482,11 +791,20 @@ async function fetchYandexResolve(tabId, headers, params, path, pauseMs = 0) {
             })
           });
 
+          const contentLength = Number(response.headers.get('content-length'));
+          if (Number.isFinite(contentLength) && contentLength > 10 * 1024 * 1024) {
+            return { ok: false, status: 413, retryAfter: '', text: '', error: 'Yandex resolve response exceeds 10 MB' };
+          }
+          const text = await response.text();
+          if (text.length > 10 * 1024 * 1024) {
+            return { ok: false, status: 413, retryAfter: '', text: '', error: 'Yandex resolve response exceeds 10 MB' };
+          }
+
           return {
             ok: response.ok,
             status: response.status,
             retryAfter: response.headers.get('retry-after') || '',
-            text: await response.text()
+            text
           };
         } catch (error) {
           return {
@@ -509,15 +827,18 @@ async function fetchYandexResolve(tabId, headers, params, path, pauseMs = 0) {
       try {
         return JSON.parse(response.text);
       } catch {
-        throw new Error(`Yandex resolve ${response.status}: ${response.text.slice(0, 120) || 'bad JSON'}`);
+        throw new Error(`Yandex resolve ${response.status}: bad JSON`);
       }
     }
 
-    if (response.status !== 429 || attempt === 2) {
+    const retryable = response.status === 429 || response.status >= 500 || response.status === 0;
+    if (!retryable || attempt === 2) {
       throw new Error(response.error || `Yandex resolve ${response.status}`);
     }
-    const delay = yandexRetryDelay(response.retryAfter, attempt);
-    emitProgress(`Яндекс Маркет: 429, пауза ${Math.round(delay / 1000)}с.`);
+    const delay = response.status === 429
+      ? yandexRetryDelay(response.retryAfter, attempt)
+      : Math.min(5000, 750 * (2 ** attempt));
+    emitProgress(`Яндекс Маркет: повтор запроса через ${Math.round(delay / 1000)}с.`);
     await sleep(delay);
   }
 
@@ -590,12 +911,10 @@ async function collectYandexReceipts(metadata, options = {}) {
     }
   });
 
-  const failedOrders = [...failedByOrder.entries()]
-    .map(([orderId, error]) => `${orderId}: ${String(error).trim()}`);
+  const failedOrders = failedByOrder.size;
 
   if (!receiptsByUrl.size) {
-    const details = failedOrders.slice(0, 3).join('; ');
-    throw new Error(`Яндекс Маркет: ссылки на чеки не найдены. Заказов проверено: ${ids.length}.${details ? ` Ошибки: ${details}.` : ''}`);
+    throw new Error(`Яндекс Маркет: ссылки на чеки не найдены. Заказов проверено: ${ids.length}, ошибок: ${failedOrders}.`);
   }
 
   return {
@@ -605,8 +924,7 @@ async function collectYandexReceipts(metadata, options = {}) {
       receipts: receiptsByUrl.size,
       archivedOrders,
       noReceiptOrders,
-      failedOrders: failedOrders.length,
-      failedOrderSamples: failedOrders.slice(0, 10)
+      failedOrders
     }
   };
 }
@@ -655,7 +973,7 @@ function parseYandexReceiptItems(html) {
 
     const title = stripTags(String(cells[1]).split(/<br\s*\/?>/i)[0]).trim();
     const amount = amountFromText(stripTags(cells[cells.length - 1]));
-    if (!title || !amount || isYandexServiceItemTitle(title)) continue;
+    if (!title || !amount) continue;
     items.push({
       title,
       amount,
@@ -694,7 +1012,39 @@ function rowsFromYandexReceiptHtml(receipt, html) {
   const date = yandexReceiptDate(html, receipt);
   const isReturn = isYandexReturnReceipt(html, receipt);
   const items = parseYandexReceiptItems(html);
+  const totalRow = (String(html || '').match(/<tr\b[^>]*>[\s\S]*?ИТОГ[\s\S]*?<\/tr>/i) || [])[0] || '';
+  const totalCells = [...totalRow.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => match[1]);
+  const receiptTotal = totalCells.length ? amountFromText(stripTags(totalCells.at(-1))) : 0;
+  const parsedTotal = items.reduce((sum, item) => sum + Math.abs(Number(item.amount) || 0), 0);
+  const incomplete = !items.length || (receiptTotal && Math.abs(parsedTotal - Math.abs(receiptTotal)) > 0.01);
+  const itemSettlementKinds = [...new Set(items.map((item) => item.settlementKind).filter(Boolean))];
+  const fallbackSettlementKind = itemSettlementKinds.length === 1
+    ? itemSettlementKinds[0]
+    : yandexSettlementKind(html);
 
+  if (incomplete && receiptTotal) {
+    return [{
+      source: 'yandex',
+      month: monthFromDate(date),
+      date,
+      amount: (isReturn ? -Math.abs(receiptTotal) : Math.abs(receiptTotal)).toFixed(2),
+      currency: 'RUB',
+      title: `Яндекс Маркет: чек ${receipt.orderId || ''} (состав не распознан)`.trim(),
+      category: '',
+      type: isReturn ? 'refund' : 'purchase',
+      is_return: isReturn ? '1' : '0',
+      marketplace_id: `${receipt.orderId || ''}:${receipt.id || yandexReceiptId(receipt.fiscalUrl)}`,
+      item_index: '1',
+      receipt_url: receipt.fiscalUrl || '',
+      raw_title: `orderId=${receipt.orderId || ''} receiptType=${receipt.type || ''}; fallback=receipt_total_mismatch`,
+      raw_amount: String(receiptTotal),
+      parse_quality: 'fallback',
+      __yandexOrderId: String(receipt.orderId || ''),
+      __yandexSettlementKind: fallbackSettlementKind
+    }];
+  }
+
+  const parseQuality = receiptTotal ? 'complete' : 'unverified';
   return items.map((item) => ({
     source: 'yandex',
     month: monthFromDate(date),
@@ -711,7 +1061,8 @@ function rowsFromYandexReceiptHtml(receipt, html) {
     raw_title: `orderId=${receipt.orderId || ''} receiptType=${receipt.type || ''}`,
     raw_amount: String(item.amount),
     __yandexOrderId: String(receipt.orderId || ''),
-    __yandexSettlementKind: item.settlementKind || ''
+    __yandexSettlementKind: item.settlementKind || '',
+    parse_quality: parseQuality
   }));
 }
 
@@ -737,22 +1088,92 @@ function filterYandexRows(rows) {
   }
 
   const filtered = [];
+  const fullAvailableCents = new Map();
   let prepaymentRowsDropped = 0;
+  let aggregatePrepaymentRowsAdjusted = 0;
+  let aggregatePrepaymentRowsDropped = 0;
+  const supersededReceipts = new Set();
 
   for (const group of groups.values()) {
-    const hasFull = group.some((row) => row.__yandexSettlementKind === 'full');
+    const fullRows = group
+      .filter((row) => row.__yandexSettlementKind === 'full' && yandexAmountCents(row.amount) > 0)
+      .sort((left, right) => String(left.date || '').localeCompare(String(right.date || '')));
+    for (const row of fullRows) fullAvailableCents.set(row, yandexAmountCents(row.amount));
+    const suppressed = new Set();
+    for (const fullRow of fullRows) {
+      const match = group
+        .filter((row) => row.parse_quality !== 'fallback'
+          && row.__yandexSettlementKind === 'prepayment'
+          && String(row.date || '') <= String(fullRow.date || '')
+          && !suppressed.has(row))
+        .sort((left, right) => String(right.date || '').localeCompare(String(left.date || '')))[0];
+      if (!match) continue;
+      suppressed.add(match);
+      fullAvailableCents.set(fullRow, 0);
+      prepaymentRowsDropped += 1;
+    }
     for (const row of group) {
-      if (hasFull && row.__yandexSettlementKind === 'prepayment') {
-        prepaymentRowsDropped += 1;
-        continue;
-      }
+      if (suppressed.has(row)) continue;
       filtered.push(row);
     }
   }
 
+  const fallbackResiduals = new Map(filtered
+    .filter((row) => row.parse_quality === 'fallback'
+      && row.__yandexSettlementKind === 'prepayment'
+      && yandexAmountCents(row.amount) > 0)
+    .map((row) => [row, yandexAmountCents(row.amount)]));
+
+  for (const fullRow of [...fullAvailableCents.keys()]
+    .sort((left, right) => String(left.date || '').localeCompare(String(right.date || '')))) {
+    let remaining = fullAvailableCents.get(fullRow) || 0;
+    if (!remaining) continue;
+    const candidates = [...fallbackResiduals.keys()]
+      .filter((row) => row.__yandexOrderId === fullRow.__yandexOrderId
+        && String(row.date || '') <= String(fullRow.date || '')
+        && fallbackResiduals.get(row) > 0)
+      .sort((left, right) => String(right.date || '').localeCompare(String(left.date || '')));
+    for (const fallbackRow of candidates) {
+      if (!remaining) break;
+      const residual = fallbackResiduals.get(fallbackRow);
+      const consumed = Math.min(residual, remaining);
+      fallbackResiduals.set(fallbackRow, residual - consumed);
+      remaining -= consumed;
+    }
+  }
+
+  const balanced = [];
+  for (const row of filtered) {
+    if (fallbackResiduals.has(row)) {
+      const amountCents = yandexAmountCents(row.amount);
+      const residualCents = fallbackResiduals.get(row);
+      if (!residualCents) {
+        aggregatePrepaymentRowsDropped += 1;
+        const receipt = String(row.receipt_url || row.marketplace_id || '').trim();
+        if (receipt) supersededReceipts.add(receipt);
+        continue;
+      }
+      if (residualCents !== amountCents) {
+        aggregatePrepaymentRowsAdjusted += 1;
+        const receipt = String(row.receipt_url || row.marketplace_id || '').trim();
+        if (receipt) supersededReceipts.add(receipt);
+        balanced.push({
+          ...row,
+          amount: (residualCents / 100).toFixed(2),
+          raw_amount: (residualCents / 100).toFixed(2)
+        });
+        continue;
+      }
+    }
+    balanced.push(row);
+  }
+
   return {
-    rows: filtered.map(({ __yandexOrderId, __yandexSettlementKind, ...row }) => row),
-    prepaymentRowsDropped
+    rows: balanced.map(({ __yandexOrderId, __yandexSettlementKind, ...row }) => row),
+    prepaymentRowsDropped,
+    aggregatePrepaymentRowsAdjusted,
+    aggregatePrepaymentRowsDropped,
+    supersededReceipts: [...supersededReceipts]
   };
 }
 
@@ -761,6 +1182,8 @@ async function rowsFromYandexReceipts(receipts, concurrencyOption) {
   const failed = [];
   let completed = 0;
   let parsedReceipts = 0;
+  let fallbackReceipts = 0;
+  let unverifiedReceipts = 0;
   emitProgress(`Яндекс Маркет: HTML-разбор в ${concurrency} потоков.`, 0, receipts.length);
 
   async function fetchYandexReceiptHtml(url) {
@@ -779,8 +1202,14 @@ async function rowsFromYandexReceipts(receipts, concurrencyOption) {
     try {
       const html = await fetchYandexReceiptHtml(receipt.fiscalUrl);
       const rows = rowsFromYandexReceiptHtml(receipt, html);
-      if (rows.length) parsedReceipts += 1;
-      else failed.push({ receipt, reason: 'no_items' });
+      if (rows.length && !rows.some((row) => row.parse_quality === 'fallback')) {
+        parsedReceipts += 1;
+        if (rows.some((row) => row.parse_quality === 'unverified')) unverifiedReceipts += 1;
+      }
+      else {
+        failed.push({ receipt, reason: rows.length ? 'receipt_total_mismatch' : 'no_items' });
+        if (rows.length) fallbackReceipts += 1;
+      }
       return rows;
     } catch (error) {
       failed.push({ receipt, reason: error.message });
@@ -800,13 +1229,17 @@ async function rowsFromYandexReceipts(receipts, concurrencyOption) {
 
   return {
     rows: filtered.rows,
+    supersededReceipts: filtered.supersededReceipts,
     stats: {
       receipts: receipts.length,
       parsedReceipts,
       failedReceipts: failed.length,
+      fallbackReceipts,
+      unverifiedReceipts,
       itemRows: filtered.rows.length,
       prepaymentRowsDropped: filtered.prepaymentRowsDropped,
-      failedReceiptSamples: failed.slice(0, 10).map((item) => `${item.receipt.orderId || item.receipt.fiscalUrl || ''}: ${item.reason}`)
+      aggregatePrepaymentRowsAdjusted: filtered.aggregatePrepaymentRowsAdjusted,
+      aggregatePrepaymentRowsDropped: filtered.aggregatePrepaymentRowsDropped
     }
   };
 }
@@ -815,6 +1248,7 @@ async function collectSpend({ sources, options }) {
   const rows = [];
   const warnings = [];
   const stats = {};
+  const supersededReceiptKeys = [];
   const jobs = [];
   const knownReceipts = options.knownReceipts || {};
   const knownReceiptTail = options.knownReceiptTail;
@@ -832,7 +1266,8 @@ async function collectSpend({ sources, options }) {
       });
       return {
         rows: result.rows || [],
-        stats: result.stats || {}
+        stats: result.stats || {},
+        supersededReceipts: result.supersededReceipts || []
       };
     }));
   }
@@ -847,9 +1282,10 @@ async function collectSpend({ sources, options }) {
         knownReceipts: knownReceipts.wildberries || [],
         knownReceiptTail
       });
+      const parsed = await rowsFromWbReceipts(result.receipts || [], options.wbReceiptConcurrency);
       return {
-        rows: await rowsFromWbReceipts(result.receipts || [], options.wbReceiptConcurrency),
-        stats: result.stats || {}
+        rows: parsed.rows,
+        stats: { ...(result.stats || {}), ...(parsed.stats || {}) }
       };
     }));
   }
@@ -874,6 +1310,7 @@ async function collectSpend({ sources, options }) {
         const parsed = await rowsFromYandexReceipts(result.receipts || [], 4);
         return {
           rows: parsed.rows,
+          supersededReceipts: parsed.supersededReceipts || [],
           stats: {
             ...(metadata.stats || {}),
             ...(result.stats || {}),
@@ -894,6 +1331,31 @@ async function collectSpend({ sources, options }) {
     if (item.ok) {
       rows.push(...item.result.rows);
       stats[item.result.source] = item.result.stats;
+      for (const receipt of item.result.supersededReceipts || []) {
+        const value = String(receipt || '').trim();
+        if (value) supersededReceiptKeys.push(`${item.result.source}\u0001${value}`);
+      }
+      const label = progressSourceLabels[item.result.source] || item.result.source;
+      if (item.result.stats?.limitReached) {
+        warnings.push(`${label}: достигнут лимит страниц; часть старых операций могла не попасть в отчёт`);
+      }
+      if (item.result.stats?.paginationIncomplete) {
+        const detail = String(item.result.stats.paginationError || '').trim();
+        warnings.push(`${label}: список заказов загружен не полностью${detail ? ` (${detail})` : ''}`);
+      }
+      if (Number(item.result.stats?.fallbackReceipts) > 0) {
+        warnings.push(`${label}: состав не распознан у чеков ${Number(item.result.stats.fallbackReceipts)}; сохранены только итоговые суммы`);
+      } else if (Number(item.result.stats?.failedReceipts) > 0) {
+        warnings.push(`${label}: не разобрано чеков ${Number(item.result.stats.failedReceipts)}`);
+      }
+      if (Number(item.result.stats?.unverifiedReceipts) > 0) {
+        warnings.push(`${label}: у чеков ${Number(item.result.stats.unverifiedReceipts)} не распознан итог; строки сохранены, но полнота состава не подтверждена`);
+      }
+      const aggregateAdjusted = Number(item.result.stats?.aggregatePrepaymentRowsAdjusted) || 0;
+      const aggregateDropped = Number(item.result.stats?.aggregatePrepaymentRowsDropped) || 0;
+      if (aggregateAdjusted || aggregateDropped) {
+        warnings.push(`${label}: агрегатная предоплата сверена с полным расчётом; скорректировано ${aggregateAdjusted}, погашено ${aggregateDropped}`);
+      }
     } else {
       warnings.push(item.error.message);
     }
@@ -903,26 +1365,51 @@ async function collectSpend({ sources, options }) {
     throw new Error(warnings.join('; '));
   }
 
-  return { rows, warnings, stats };
+  return { rows, warnings, stats, sources: [...sources], supersededReceiptKeys };
 }
 
-function startCollectJob(sources, options) {
-  const jobId = String(nextCollectJobId++);
+async function startCollectJob(sources, options) {
+  const jobId = createCollectJobId();
+  const generation = collectJobGeneration;
   const job = {
     status: 'running',
     result: null,
     error: ''
   };
   collectJobs.set(jobId, job);
+  try {
+    await persistCollectJob(jobId, job);
+  } catch (error) {
+    collectJobs.delete(jobId);
+    throw persistenceError(error);
+  }
 
   collectSpend({ sources, options })
-    .then((result) => {
+    .then(async (result) => {
+      if (generation !== collectJobGeneration) return;
       job.status = 'done';
       job.result = result;
-    })
-    .catch((error) => {
+      try {
+        await persistCollectJob(jobId, job);
+      } catch (error) {
+        job.status = 'error';
+        job.result = null;
+        job.error = persistenceError(error).message;
+        try {
+          await persistCollectJob(jobId, job);
+        } catch (stateError) {
+          job.error = `${job.error} Состояние доступно только до закрытия фонового процесса: ${stateError.message}`;
+        }
+      }
+    }, async (error) => {
+      if (generation !== collectJobGeneration) return;
       job.status = 'error';
       job.error = error.message;
+      try {
+        await persistCollectJob(jobId, job);
+      } catch (stateError) {
+        job.error = `${job.error} Состояние доступно только до закрытия фонового процесса: ${stateError.message}`;
+      }
     });
 
   return jobId;
@@ -935,8 +1422,41 @@ if (api?.action?.onClicked) {
 }
 
 if (api?.runtime?.onMessage) {
-  api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  api.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    const appMessageTypes = new Set([
+      'SPEND_CLEAR_COLLECT_JOBS',
+      'SPEND_COLLECT_START',
+      'SPEND_COLLECT_STATUS',
+      'SPEND_COLLECT_ACK',
+      'SPEND_COLLECT'
+    ]);
+    const trustedApp = sender?.id === api.runtime.id
+      && sender?.url === api.runtime.getURL('app.html');
+    if (appMessageTypes.has(message?.type) && !trustedApp) {
+      sendResponse({ ok: false, error: 'Недопустимый запрос приложения.' });
+      return false;
+    }
+
+    if (message?.type === 'SPEND_CLEAR_COLLECT_JOBS') {
+      clearCollectJobs()
+        .then(() => sendResponse({ ok: true }))
+        .catch((error) => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+
     if (message?.type === 'SPEND_GET_COOKIE') {
+      const allowedCookieUrls = new Set([
+        'https://www.wildberries.ru/',
+        'https://wildberries.ru/',
+        'https://astro.wildberries.ru/'
+      ]);
+      const senderUrl = String(sender?.tab?.url || '');
+      const trustedSender = sender?.id === api.runtime.id
+        && /^https:\/\/(?:www\.)?wildberries\.ru\//i.test(senderUrl);
+      if (!trustedSender || message.name !== 'wbid-sdk-id-token' || !allowedCookieUrls.has(message.url)) {
+        sendResponse({ ok: false, error: 'Недопустимый запрос cookie.' });
+        return false;
+      }
       chromeCall(api.cookies.get, {
         url: message.url,
         name: message.name
@@ -954,52 +1474,47 @@ if (api?.runtime?.onMessage) {
     }
 
     if (message?.type === 'SPEND_COLLECT_START') {
-      try {
-        const jobId = startCollectJob(
+      startCollectJob(
           Array.isArray(message.sources) ? message.sources : [],
           message.options || {}
-        );
-        sendResponse({ ok: true, jobId });
-      } catch (error) {
-        sendResponse({ ok: false, error: error.message });
-      }
-      return false;
+        )
+        .then((jobId) => sendResponse({ ok: true, jobId }))
+        .catch((error) => sendResponse({ ok: false, error: error.message }));
+      return true;
     }
 
     if (message?.type === 'SPEND_COLLECT_STATUS') {
-      const job = collectJobs.get(String(message.jobId || ''));
-      if (!job) {
-        sendResponse({ ok: false, error: 'Задача сбора не найдена. Запустите сбор заново.' });
-        return false;
-      }
-      if (job.status === 'done') {
-        collectJobs.delete(String(message.jobId));
-        sendResponse({ ok: true, status: 'done', ...job.result });
-        return false;
-      }
-      if (job.status === 'error') {
-        collectJobs.delete(String(message.jobId));
-        sendResponse({ ok: true, status: 'error', error: job.error });
-        return false;
-      }
-      sendResponse({ ok: true, status: 'running' });
-      return false;
+      collectJobResponse(message.jobId)
+        .then(sendResponse)
+        .catch((error) => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+
+    if (message?.type === 'SPEND_COLLECT_ACK') {
+      acknowledgeCollectJob(message.jobId)
+        .then(() => sendResponse({ ok: true }))
+        .catch((error) => sendResponse({ ok: false, error: error.message }));
+      return true;
     }
 
     if (message?.type !== 'SPEND_COLLECT') return false;
 
-    const jobId = startCollectJob(
+    startCollectJob(
       Array.isArray(message.sources) ? message.sources : [],
       message.options || {}
-    );
-    sendResponse({ ok: true, jobId });
-    return false;
+    )
+      .then((jobId) => sendResponse({ ok: true, jobId }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
   });
 }
 
 if (typeof module !== 'undefined') {
   module.exports = {
+    allowedReceiptUrl,
     parseWbReceiptItems,
+    isWildberriesReceiptsPageReady,
+    wbOperationType,
     filterYandexRows,
     rowsFromYandexReceiptHtml
   };

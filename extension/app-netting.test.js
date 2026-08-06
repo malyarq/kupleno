@@ -2,6 +2,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const categoryEngine = require('./categories.js');
+const preferenceEngine = require('./preferences.js');
+const lifecycleEngine = require('./lifecycle.js');
 
 function fakeElement() {
   return {
@@ -35,14 +38,14 @@ function element(id = '') {
   return elements.get(id);
 }
 
-const source = fs
-  .readFileSync(path.join(__dirname, 'app.js'), 'utf8')
-  .split("els.collect.addEventListener('click', collect);")[0];
+const fullSource = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
+const source = fullSource.split("els.collect.addEventListener('click', collect);")[0];
 
 const context = {
   console,
   chrome: null,
   globalThis: null,
+  MarketTratPreferences: preferenceEngine,
   localStorage: {
     getItem() { return null; },
     setItem() {},
@@ -64,6 +67,139 @@ const context = {
 context.globalThis = context;
 vm.createContext(context);
 vm.runInContext(source, context);
+
+let classifierCalls = 0;
+context.guessSpendCategory = () => {
+  classifierCalls += 1;
+  return 'Продукты';
+};
+assert.equal(context.withCategory({ title: 'Чай', category: 'Дом' }).category, 'Дом');
+assert.equal(classifierCalls, 0, 'готовая категория не должна запускать повторную классификацию');
+assert.equal(context.withCategory({ title: 'Чай', category: '' }).category, 'Продукты');
+assert.equal(classifierCalls, 1);
+
+context.classifySpendCategory = categoryEngine.classifySpendCategory;
+const ambiguousCategory = JSON.parse(JSON.stringify(context.withCategory({
+  source: 'ozon', title: 'Сумка для ноутбука', category: ''
+})));
+assert.equal(ambiguousCategory.category, 'unknown');
+assert.equal(ambiguousCategory.category_needs_review, true);
+assert.equal(ambiguousCategory.category_suggestion, 'Аксессуары');
+const confidentCategory = JSON.parse(JSON.stringify(context.withCategory({
+  source: 'ozon', title: 'Крем для обуви', category: ''
+})));
+assert.equal(confidentCategory.category, 'Бытовая химия');
+assert.equal(confidentCategory.category_needs_review, false);
+context.categoryQualityFixture = [
+  { ...ambiguousCategory, amount: '500.00' },
+  { ...confidentCategory, amount: '300.00' },
+  { ...confidentCategory, title: 'Ручная правка', category_origin: 'manual', amount: '200.00' }
+];
+const categoryQuality = JSON.parse(JSON.stringify(context.categoryQuality(context.categoryQualityFixture)));
+assert.deepEqual(categoryQuality, {
+  total: 3,
+  reviewRows: [{ ...ambiguousCategory, amount: '500.00' }],
+  reviewAmount: 500,
+  confirmed: 1,
+  confident: 1,
+  coverage: 67
+});
+
+context.legacyBudgetFixture = { 'Дом': 15000, 'Книги': 3000 };
+vm.runInContext('legacyBudgets = legacyBudgetFixture', context);
+const migratedLegacySettings = JSON.parse(JSON.stringify(context.normalizeSettings({})));
+assert.deepEqual(migratedLegacySettings.budgets[context.currentMonthKey()], {
+  total: null,
+  categories: context.legacyBudgetFixture
+});
+vm.runInContext('legacyBudgets = {}', context);
+
+const normalizedDamagedSettings = JSON.parse(JSON.stringify(context.normalizeSettings({
+  profiles: [{ id: 'Дом', name: 'Дом' }, { id: 'дом', name: 'Дубликат' }, null],
+  activeProfile: 'missing',
+  dataProfile: 'missing',
+  budgets: { broken: [], '2026-07': { total: -1, categories: { Дом: 5000, bad: 'NaN' } } },
+  overrides: [],
+  customRules: [{ keyword: '', category: 'Дом' }]
+})));
+assert.deepEqual(normalizedDamagedSettings.profiles, [{ id: 'дом', name: 'Дом' }]);
+assert.equal(normalizedDamagedSettings.activeProfile, 'all');
+assert.equal(normalizedDamagedSettings.dataProfile, 'дом');
+assert.deepEqual(normalizedDamagedSettings.budgets['2026-07'], { total: null, categories: { Дом: 5000 } });
+
+const advancedRuleSettings = JSON.parse(JSON.stringify(context.normalizeSettings({
+  customRules: [{
+    id: 'advanced',
+    keywords: ['кофе', 'зерна'],
+    negativeKeywords: ['игрушка'],
+    sources: ['ozon', 'wb'],
+    match: 'all',
+    category: 'Продукты',
+    priority: 120,
+    enabled: false,
+    amountMin: 100,
+    amountMax: 5000
+  }]
+})));
+assert.deepEqual(advancedRuleSettings.customRules, [{
+  id: 'advanced',
+  keyword: 'кофе, зерна',
+  keywords: ['кофе', 'зерна'],
+  negativeKeywords: ['игрушка'],
+  sources: ['ozon', 'wildberries'],
+  match: 'all',
+  category: 'Продукты',
+  priority: 120,
+  enabled: false,
+  amountMin: 100,
+  amountMax: 5000
+}]);
+
+const closure = lifecycleEngine.closeMonth(lifecycleEngine.createMonthClosure('2026-07'), [{
+  rowId: 'purchase-1', date: '2026-07-01', source: 'ozon', title: 'Чай', amount: 100, category: 'Продукты'
+}], { now: '2026-08-01', confirmReview: true });
+const maximumSettings = JSON.parse(JSON.stringify(context.normalizeSettings({
+  profiles: [{ id: 'personal', name: 'Личный' }, { id: 'work', name: 'Рабочий' }],
+  budgets: {
+    '2026-07': { total: 1000, categories: { Продукты: 500 } },
+    ['work\u00012026-07']: { total: 2000, categories: { Электроника: 1500 } },
+    ['missing\u00012026-07']: { total: 9999, categories: {} }
+  },
+  refundClaims: [{
+    rowId: 'purchase-1', source: 'ozon', marketplace_id: 'order-1', title: 'Чай', amount: 100,
+    profile: 'work', purchaseDate: '2026-07-01', createdAt: '2026-07-02', status: 'reconciled'
+  }],
+  warranties: [{
+    id: 'archive-1', kind: 'warranty', rowId: 'purchase-1', marketplace_id: 'order-1', source: 'ozon',
+    title: 'Чайник', issuedAt: '2026-07-01', expiresAt: '2027-07-01', url: 'https://example.test/receipt',
+    note: 'Серийный номер', addedAt: '2026-07-01', profile: 'work'
+  }],
+  monthClosures: { ['work\u00012026-07']: closure },
+  recurringDecisions: { ['work\u0001coffee']: 'confirmed', bad: 'unknown' },
+  anomalyDismissals: { ['work\u0001duplicate\u0001row']: true, falseValue: false }
+})));
+assert.equal(maximumSettings.refundClaims[0].expectedAmount, 100);
+assert.equal(maximumSettings.refundClaims[0].status, 'received');
+assert.equal(maximumSettings.refundClaims[0].profile, 'work');
+assert.equal(maximumSettings.warranties[0].url, 'https://example.test/receipt');
+assert.equal(maximumSettings.warranties[0].profile, 'work');
+assert.equal(maximumSettings.monthClosures['work\u00012026-07'].status, 'closed');
+assert.equal(maximumSettings.recurringDecisions['work\u0001coffee'], 'confirmed');
+assert.equal(maximumSettings.anomalyDismissals['work\u0001duplicate\u0001row'], true);
+assert.equal(maximumSettings.budgets['work\u00012026-07'].total, 2000);
+assert.equal(maximumSettings.budgets['missing\u00012026-07'], undefined);
+assert.notEqual(
+  context.categoryRuleSignature({ keywords: ['крем'], negativeKeywords: ['обуви'], sources: [], match: 'any' }),
+  context.categoryRuleSignature({ keywords: ['крем'], negativeKeywords: ['лица'], sources: [], match: 'any' })
+);
+assert.notEqual(
+  context.categoryRuleSignature({ keywords: ['крем'], sources: [], match: 'any', amountMin: 100 }),
+  context.categoryRuleSignature({ keywords: ['крем'], sources: [], match: 'any', amountMin: 500 })
+);
+assert.equal(
+  context.categoryRuleSignature({ keywords: ['зерна', 'кофе'], sources: ['wb', 'ozon'], match: 'all' }),
+  context.categoryRuleSignature({ keywords: ['кофе', 'зерна'], sources: ['ozon', 'wildberries'], match: 'all' })
+);
 
 const records = [
   {
@@ -117,6 +253,61 @@ assert.equal(known.ozon.slice(0, 2).join(','), 'ozon-new,https://ozon-new');
 assert.equal(known.wildberries.join(','), 'wb-1');
 assert.equal(known.yandexOrders.join(','), '123');
 assert.equal(context.hasKnownReceipts(known), true);
+assert.deepEqual(
+  JSON.parse(JSON.stringify(context.mergeCollectedRows([{ title: 'CSV без id' }], [{ title: 'Собрано' }]))),
+  [{ title: 'CSV без id' }, { title: 'Собрано' }]
+);
+assert.deepEqual(
+  JSON.parse(JSON.stringify(context.mergeCollectedRows([], [{ title: 'Первый сбор' }]))),
+  [{ title: 'Первый сбор' }]
+);
+const replacedFallback = context.mergeCollectedRows([
+  { source: 'wildberries', receipt_url: 'https://receipt.wb.ru/1', title: 'Чек без состава', amount: '300.00' },
+  { source: 'wildberries', receipt_url: 'https://receipt.wb.ru/old', title: 'Старый чек', amount: '50.00' }
+], [
+  { source: 'wildberries', receipt_url: 'https://receipt.wb.ru/1', title: 'Товар A', amount: '100.00' },
+  { source: 'wildberries', receipt_url: 'https://receipt.wb.ru/1', title: 'Товар B', amount: '200.00' }
+]);
+assert.equal(replacedFallback.map((row) => row.title).join(','), 'Старый чек,Товар A,Товар B');
+assert.equal(replacedFallback.reduce((sum, row) => sum + Number(row.amount), 0), 350);
+const completeReceipt = [
+  { source: 'wildberries', receipt_url: 'https://receipt.wb.ru/complete', title: 'Товар A', amount: '100.00' },
+  { source: 'wildberries', receipt_url: 'https://receipt.wb.ru/complete', title: 'Товар B', amount: '200.00' }
+];
+const fallbackDidNotDowngrade = context.mergeCollectedRows(completeReceipt, [
+  { source: 'wildberries', receipt_url: 'https://receipt.wb.ru/complete', title: 'Wildberries receipt (состав не распознан)', amount: '300.00', parse_quality: 'fallback' }
+]);
+assert.equal(fallbackDidNotDowngrade.map((row) => row.title).join(','), 'Товар A,Товар B');
+const partialDidNotDowngrade = context.mergeCollectedRows(completeReceipt, [
+  { source: 'wildberries', receipt_url: 'https://receipt.wb.ru/complete', title: 'Товар A', amount: '100.00' }
+]);
+assert.equal(partialDidNotDowngrade.map((row) => row.title).join(','), 'Товар A,Товар B');
+const explicitSettlementReplacement = context.mergeCollectedRows(completeReceipt, [], [
+  'wildberries\u0001https://receipt.wb.ru/complete'
+]);
+assert.equal(explicitSettlementReplacement.length, 0);
+for (const source of ['ozon', 'yandex']) {
+  const prepaymentUrl = `https://receipt.example/${source}/prepayment`;
+  const partialSettlementMerge = context.mergeCollectedRows([
+    { source, receipt_url: prepaymentUrl, title: 'Товар A', amount: '100.00', parse_quality: 'complete' },
+    { source, receipt_url: prepaymentUrl, title: 'Товар B', amount: '200.00', parse_quality: 'complete' }
+  ], [
+    { source, receipt_url: prepaymentUrl, title: 'Частично погашенная предоплата', amount: '200.00', parse_quality: 'fallback' },
+    { source, receipt_url: `https://receipt.example/${source}/full`, title: 'Товар A', amount: '100.00', parse_quality: 'complete' }
+  ], [
+    `${source}\u0001${prepaymentUrl}`
+  ]);
+  assert.equal(partialSettlementMerge.reduce((sum, row) => sum + Number(row.amount), 0), 300);
+  assert.equal(partialSettlementMerge.length, 2);
+}
+const correctedLegacyReceipt = context.mergeCollectedRows([
+  { source: 'wildberries', receipt_url: 'https://receipt.wb.ru/legacy', title: 'Товар A', amount: '100.00' },
+  { source: 'wildberries', receipt_url: 'https://receipt.wb.ru/legacy', title: 'Товар B', amount: '300.00' }
+], [
+  { source: 'wildberries', receipt_url: 'https://receipt.wb.ru/legacy', title: 'Товар A', amount: '100.00', parse_quality: 'complete' },
+  { source: 'wildberries', receipt_url: 'https://receipt.wb.ru/legacy', title: 'Товар B', amount: '200.00', parse_quality: 'complete' }
+]);
+assert.equal(correctedLegacyReceipt.reduce((sum, row) => sum + Number(row.amount), 0), 300);
 element('periodChartMode').value = 'category';
 const segments = context.periodChartSegments(analytics.periods[0]);
 assert.equal(segments[0].key, 'Электроника');
@@ -184,9 +375,125 @@ element('analyticsWb').checked = false;
 element('analyticsYandex').checked = true;
 assert.deepEqual(context.csvExportRows().map((row) => row.title), ['Feb Ozon']);
 assert.equal(context.csvExportSuffix(), '2024-02-01_2024-02-29');
+assert.deepEqual(context.dataExportRows().map((row) => row.title), exportRecords.map((row) => row.title));
+
+for (const value of ['=1+1', '+SUM(A1:A2)', '@cmd', '-2+3', '  =HYPERLINK("x")', '\t@cmd', '\r+1', '\n-1']) {
+  const encoded = context.csvCell(value);
+  assert.ok(encoded.startsWith("'") || encoded.startsWith('"\''), `${JSON.stringify(value)} должен быть нейтрализован`);
+}
+assert.equal(context.csvCell('-1490.00', false), '-1490.00');
+const formulaSafeCsv = context.makeCsv([{
+  date: '2026-01-01',
+  source: 'ozon',
+  title: '=HYPERLINK("https://example.test")',
+  amount: '-1490.00',
+  currency: 'RUB',
+  category: '+Опасная категория',
+  type: 'refund',
+  marketplace_id: '@order',
+  item_index: '-1'
+}]);
+assert.match(formulaSafeCsv, /"'=HYPERLINK\(""https:\/\/example\.test""\)"/);
+assert.match(formulaSafeCsv, /,-1490\.00,/);
+assert.match(formulaSafeCsv, /'\+Опасная категория/);
+
+assert.equal(context.automaticPersistenceAllowed(), true);
+vm.runInContext('dataEpoch = 4', context);
+assert.equal(context.isNewerDataEpoch(4), false);
+assert.equal(context.isNewerDataEpoch(3), false);
+assert.equal(context.isNewerDataEpoch(5), true);
+assert.equal(context.adoptLoadedDataEpoch(3), false);
+assert.equal(vm.runInContext('dataEpoch', context), 4);
+assert.equal(context.adoptLoadedDataEpoch(4), true);
+assert.equal(context.adoptLoadedDataEpoch(6), true);
+assert.equal(vm.runInContext('dataEpoch', context), 6);
+assert.equal(context.adoptLoadedDataEpoch(-1), false);
+vm.runInContext('dataEpoch = 4', context);
+assert.equal(context.adoptLoadedDataRevision(7), true);
+assert.equal(vm.runInContext('dataRevision', context), 7);
+const storageConflictBody = source.slice(source.indexOf('function markStorageConflict('), source.indexOf('function currentMonthKey('));
+assert.match(storageConflictBody, /setMutationControlsDisabled\(true\)/);
+
+const originalRemoveItem = context.localStorage.removeItem;
+context.localStorage.removeItem = () => {
+  throw new Error('injected localStorage failure');
+};
+assert.equal(context.cleanupLegacyStorageAfterCommit(), false);
+context.localStorage.removeItem = originalRemoveItem;
+assert.equal(context.cleanupLegacyStorageAfterCommit(), true);
+context.withAutomaticPersistenceSuppressed(() => {
+  assert.equal(context.automaticPersistenceAllowed(), false);
+  context.withAutomaticPersistenceSuppressed(() => {
+    assert.equal(context.automaticPersistenceAllowed(), false);
+  });
+  assert.equal(context.automaticPersistenceAllowed(), false);
+});
+assert.equal(context.automaticPersistenceAllowed(), true);
+const restoreSnapshotBody = source.slice(source.indexOf('function restoreSnapshot('), source.indexOf('function restoreLastRun('));
+assert.match(restoreSnapshotBody, /withAutomaticPersistenceSuppressed/);
+const refundClaimsBody = source.slice(source.indexOf('function renderRefundClaims('), source.indexOf('function downloadBlob('));
+assert.match(refundClaimsBody, /automaticPersistenceAllowed\(\)/);
+context.withAutomaticPersistenceSuppressed(async () => {
+  assert.equal(context.automaticPersistenceAllowed(), false);
+  await Promise.resolve();
+  assert.equal(context.automaticPersistenceAllowed(), false);
+}).then(() => {
+  assert.equal(context.automaticPersistenceAllowed(), true);
+}).catch((error) => {
+  process.nextTick(() => {
+    throw error;
+  });
+});
+
+const collectBody = source.slice(source.indexOf('async function collect()'), source.indexOf("api?.runtime?.onMessage"));
+assert.match(collectBody, /collectionInProgress = true/);
+assert.match(collectBody, /generation !== collectGeneration/);
+assert.doesNotMatch(collectBody, /updateResult\(\[\]/, 'сбор не должен очищать текущий отчёт до успешного ответа');
+
+const initializeBody = fullSource.slice(fullSource.indexOf('async function initializeApp()'));
+const loadIndex = initializeBody.indexOf('featureStorage.loadWithEpoch()');
+const legacyRestoreIndex = initializeBody.indexOf('restoreLastRun()');
+const migrationSaveIndex = initializeBody.indexOf("persistSnapshot('Миграция старого отчёта')");
+assert.ok(loadIndex >= 0 && legacyRestoreIndex > loadIndex && migrationSaveIndex > legacyRestoreIndex);
+assert.match(initializeBody, /adoptLoadedDataEpoch\(loaded\.epoch\)/);
+assert.match(initializeBody, /dataEpoch === 0 && restoreLastRun\(\)/);
+assert.match(fullSource, /markettrat-last-run-v1/);
+assert.match(fullSource, /markettrat-budgets-v1/);
+
+const deleteAllDataBody = fullSource.slice(
+  fullSource.indexOf('async function deleteAllData()'),
+  fullSource.indexOf('function demoRows()')
+);
+assert.ok(
+  deleteAllDataBody.indexOf('await clearBackgroundCollectJobs()')
+    < deleteAllDataBody.indexOf('await featureStorage.clear()')
+);
+assert.match(deleteAllDataBody, /collectJobCleanupError/);
 
 const diagnostic = context.sourceDiagnostic('ozon', {
   ozon: { receipts: 18, parsedReceipts: 17, failedReceipts: 1, itemRows: 42 }
 });
 assert.equal(diagnostic.label, '17/18 чеков');
 assert.ok(diagnostic.title.includes('пропущено 1'));
+
+const largeOverrideRows = Array.from({ length: 100000 }, (_, index) => ({
+  rowId: `large-${index}`,
+  source: 'ozon',
+  date: '2026-08-01',
+  title: `Товар ${index}`,
+  amount: '1.00',
+  category: 'Дом',
+  profile: 'personal'
+}));
+context.largeOverrideRows = largeOverrideRows;
+context.largeOverrides = Object.fromEntries(largeOverrideRows.map((row) => [row.rowId, { category: 'Дом' }]));
+const overrideRenderStartedAt = Date.now();
+vm.runInContext(`
+  sourceRows = largeOverrideRows;
+  rows = largeOverrideRows;
+  appSettings.overrides = largeOverrides;
+  operationOverridesShownCount = 100;
+  renderOperationOverrides();
+`, context);
+assert.ok(Date.now() - overrideRenderStartedAt < 2000, '100k ручных правок должны рендериться без квадратичного поиска');
+assert.match(element('operationOverridesSummary').textContent, /100000/);

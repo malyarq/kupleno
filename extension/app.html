@@ -11,25 +11,42 @@
     <header class="topbar">
       <div>
         <h1>MarketTrat</h1>
-        <p>Расходы из чеков Ozon, Wildberries и Яндекс Маркета в один CSV.</p>
+        <p>Показывает, сколько вы потратили, что стоит проверить и какие возвраты ещё не пришли. История хранится на этом устройстве.</p>
       </div>
       <div class="top-actions">
         <button id="themeToggle" type="button" class="secondary theme-toggle" aria-label="Тёмная тема"></button>
-        <button id="collect" type="button">Собрать данные</button>
+        <button id="collect" type="button">Добавить покупки</button>
       </div>
     </header>
+
+    <section id="onboardingPanel" class="onboarding-panel" hidden aria-labelledby="onboardingTitle">
+      <div class="onboarding-copy">
+        <span class="local-badge">Хранится на вашем устройстве</span>
+        <h2 id="onboardingTitle">Первый отчёт — за три понятных шага</h2>
+        <p>Войдите в нужные магазины в этом браузере, оставьте их отмеченными ниже и нажмите «Собрать мои покупки».</p>
+      </div>
+      <ol class="onboarding-points">
+        <li><strong>Войти</strong><span>Откройте сайты магазинов и войдите в аккаунты.</span></li>
+        <li><strong>Разрешить</strong><span>Браузер спросит доступ только к отмеченным сайтам.</span></li>
+        <li><strong>Посмотреть</strong><span>MarketTrat сам соберёт отчёт и покажет следующий шаг.</span></li>
+      </ol>
+      <div class="onboarding-actions">
+        <button id="onboardingDemo" type="button" class="secondary">Посмотреть пример</button>
+        <button id="onboardingStart" type="button">Собрать мои покупки</button>
+      </div>
+    </section>
 
     <section id="runSummary" class="run-summary" hidden>
       <span id="runSummaryText"></span>
       <div class="run-summary-actions">
-        <button id="runDownloadCsv" type="button" disabled>Скачать весь CSV</button>
+        <button id="runDownloadCsv" type="button" disabled>Скачать таблицу (0)</button>
         <button id="toggleRunDetails" type="button" class="secondary">Подробнее</button>
       </div>
     </section>
 
     <div id="runDetails" class="run-details">
       <section class="sources" aria-label="Источники сбора">
-        <span class="control-label">Собирать из</span>
+        <span class="control-label">Магазины</span>
         <label class="check">
           <input id="sourceOzon" type="checkbox" checked>
           <span><span class="source-badge ozon">O</span>Ozon</span>
@@ -42,35 +59,59 @@
           <input id="sourceYandex" type="checkbox" checked>
           <span><span class="source-badge yandex">Я</span>Яндекс Маркет</span>
         </label>
+        <span class="source-permission-note">Оставьте отмеченными только магазины, где вы уже вошли в аккаунт.</span>
+        <details class="permission-details">
+          <summary>Зачем браузер просит доступ?</summary>
+          <p>Только чтобы по вашей команде прочитать заказы на отмеченных сайтах. Для Wildberries нужен также доступ к его cookie входа. Пароли MarketTrat не читает. Доступ можно отозвать в разделе «Настройки».</p>
+        </details>
       </section>
 
       <section class="status">
-        <div id="statusText">Готово к запуску.</div>
+        <div id="statusText" role="status" aria-live="polite">Можно начинать.</div>
         <progress id="progress" value="0" max="1"></progress>
+        <p id="collectHint" class="collect-hint" hidden>Сбор может занять несколько минут. Страницу можно закрыть: при следующем открытии MarketTrat продолжит ждать результат.</p>
         <div id="sourceStatuses" class="source-statuses" hidden></div>
       </section>
 
-      <section id="warningBanner" class="warning-banner" hidden></section>
+      <section id="warningBanner" class="warning-banner" hidden>
+        <div>
+          <strong id="warningTitle">Не всё получилось</strong>
+          <span id="warningText"></span>
+        </div>
+        <button id="warningDetails" type="button" class="secondary">Технические сведения</button>
+      </section>
       <section id="qualitySummary" class="quality-summary" hidden></section>
 
       <section class="toolbar">
-        <button id="uploadCsv" type="button" class="secondary">Загрузить / объединить CSV</button>
+        <button id="uploadCsv" type="button" class="secondary">Загрузить готовую таблицу</button>
         <input id="uploadCsvInput" type="file" accept=".csv,text/csv" multiple hidden>
-        <button id="downloadCsv" type="button" disabled>Скачать весь CSV</button>
+        <button id="downloadCsv" type="button" disabled>Скачать таблицу (0)</button>
       </section>
     </div>
 
     <section id="updateBanner" class="update-banner" hidden></section>
 
     <nav class="view-tabs" aria-label="Разделы">
-      <button class="tab-button active" type="button" data-view="analytics">Аналитика</button>
-      <button class="tab-button" type="button" data-view="log">Диагностика <span id="logBadge" class="tab-badge" hidden>0</span></button>
+      <button class="tab-button active" type="button" data-view="analytics" aria-current="page">Главное</button>
+      <button class="tab-button" type="button" data-view="categories">Проверить <span id="categoryReviewBadge" class="tab-badge" hidden>0</span></button>
+      <button class="tab-button" type="button" data-view="control">Советы <span id="controlBadge" class="tab-badge" hidden>0</span></button>
+      <button class="tab-button" type="button" data-view="data">Настройки</button>
     </nav>
 
-    <section id="analyticsView" class="analytics view-panel active" aria-label="Аналитика">
+    <section id="analyticsView" class="analytics view-panel active" aria-label="Главное" aria-hidden="false">
       <div class="analytics-titlebar">
-        <h2>Аналитика</h2>
-        <div class="analytics-controls">
+        <h2>Главное</h2>
+        <details class="analytics-filter-details">
+          <summary>Период и фильтры</summary>
+          <div class="analytics-controls">
+          <label class="field active-profile-field">
+            <span>Чьи покупки</span>
+            <span class="select-control compact-select">
+              <select id="activeProfileSelect" aria-label="Профиль аналитики">
+                <option value="all">Все профили</option>
+              </select>
+            </span>
+          </label>
           <label class="field quick-period-field">
             <span>Период</span>
             <span class="select-control">
@@ -90,7 +131,7 @@
             </span>
           </label>
           <label class="field">
-            <span>Группировать</span>
+            <span>Показывать по</span>
             <span class="select-control">
               <select id="periodGroup">
                 <option value="month" selected>Месяц</option>
@@ -116,7 +157,7 @@
           <button type="button" class="secondary quick-period" data-period="this-quarter">Этот квартал</button>
           <button type="button" class="secondary quick-period" data-period="this-year">Этот год</button>
           <button id="resetPeriod" type="button" class="secondary">Весь период</button>
-          <span class="control-label">Фильтр отчёта</span>
+          <span class="control-label">Какие магазины учитывать</span>
           <label class="check">
             <input id="analyticsOzon" type="checkbox" checked>
             <span><span class="source-badge ozon">O</span>Ozon</span>
@@ -129,17 +170,35 @@
             <input id="analyticsYandex" type="checkbox" checked>
             <span><span class="source-badge yandex">Я</span>Яндекс Маркет</span>
           </label>
-        </div>
+          </div>
+        </details>
       </div>
       <div id="activeFilters" class="active-filters"></div>
 
       <div class="analytics-empty">
-        <p id="analyticsEmptyText">Выберите источники и нажмите «Собрать данные».</p>
+        <p id="analyticsEmptyText">Оставьте нужные магазины отмеченными сверху и нажмите «Добавить покупки».</p>
         <div id="analyticsEmptyActions" class="empty-actions">
-          <button id="emptyCollect" type="button">Собрать данные</button>
-          <button id="emptyUploadCsv" type="button" class="secondary">Загрузить CSV</button>
+          <button id="emptyCollect" type="button">Добавить покупки</button>
+          <button id="emptyUploadCsv" type="button" class="secondary">Загрузить таблицу</button>
+          <button id="emptyReset" type="button" class="secondary" hidden>Сбросить фильтры</button>
         </div>
       </div>
+
+      <section id="homeGuide" class="home-guide" hidden aria-labelledby="homeGuideTitle" aria-live="polite">
+        <div class="home-guide-main">
+          <span id="homeGuideKicker" class="home-guide-kicker">Что сделать сейчас</span>
+          <h2 id="homeGuideTitle">Всё в порядке</h2>
+          <p id="homeGuideText">Срочных действий нет.</p>
+          <div class="home-guide-actions">
+            <button id="homeGuidePrimary" type="button">Обновить покупки</button>
+            <button id="homeGuideSecondary" type="button" class="secondary">Скачать таблицу</button>
+          </div>
+        </div>
+        <div id="homeNextSteps" class="home-next-steps" hidden>
+          <strong>Потом</strong>
+          <ol id="homeNextStepList"></ol>
+        </div>
+      </section>
 
       <div class="analytics-kpis">
         <div><strong id="analyticsTotal">0</strong><span id="analyticsTotalLabel">итого, ₽</span><small id="analyticsTotalCompare"></small></div>
@@ -147,6 +206,25 @@
         <div><strong id="analyticsRefunds">0</strong><span>возвраты, ₽</span></div>
         <div><strong id="analyticsPurchases">0</strong><span id="analyticsPurchasesLabel">операций</span></div>
       </div>
+
+      <section id="reportTrust" class="report-trust" hidden aria-live="polite">
+        <div>
+          <span id="reportTrustBadge" class="local-badge">Качество отчёта</span>
+          <strong id="reportTrustTitle">Данные готовы к анализу</strong>
+          <span id="reportTrustText"></span>
+        </div>
+        <button id="openCategoryReview" type="button" class="secondary">Проверить категории</button>
+      </section>
+
+      <section id="actionSummary" class="chart-panel action-summary" hidden aria-labelledby="actionSummaryTitle">
+        <div class="panel-head">
+          <div>
+            <h3 id="actionSummaryTitle">Что ещё заметно</h3>
+            <p class="card-hint">Нажмите на вывод, чтобы увидеть покупки, из которых он получился.</p>
+          </div>
+        </div>
+        <div id="actionInsightList" class="action-insight-list"></div>
+      </section>
 
       <div class="analytics-layout">
         <div class="analytics-main">
@@ -157,7 +235,7 @@
                 <span id="chartRange"></span>
                 <span class="select-control compact-select">
                   <select id="periodChartMode" aria-label="Разбивка динамики расходов">
-                    <option value="source" selected>Маркеты</option>
+                    <option value="source" selected>Магазины</option>
                     <option value="category">Категории</option>
                   </select>
                 </span>
@@ -172,9 +250,9 @@
                 <span id="categorySummary"></span>
                 <span class="select-control compact-select">
                   <select id="categoryChartType" aria-label="Вид категорий">
-                    <option value="bars" selected>Полосы</option>
-                    <option value="donut">Кольцо</option>
-                    <option value="tiles">Плитки</option>
+                    <option value="bars" selected>Столбцы</option>
+                    <option value="donut">Круг</option>
+                    <option value="tiles">Карточки</option>
                   </select>
                 </span>
               </div>
@@ -198,8 +276,25 @@
             <h3>Топ трат</h3>
             <ol id="topItems" class="top-items"></ol>
           </div>
-          <div class="chart-panel">
-            <h3>Бюджеты</h3>
+          <details id="budgetCard" class="chart-panel disclosure-card">
+            <summary>
+              <span><strong>Бюджет на месяц</strong><small>Необязательно. Раскройте, если хотите задать лимит.</small></span>
+            </summary>
+            <div class="disclosure-body">
+            <div class="budget-period-row">
+              <label class="data-field budget-month-field">
+                <span>Месяц</span>
+                <input id="budgetMonth" type="month" aria-label="Месяц бюджета">
+              </label>
+              <label class="data-field overall-budget-field">
+                <span>Лимит на месяц всего</span>
+                <input id="overallBudgetAmount" type="number" min="0" step="500" placeholder="₽" aria-label="Общий лимит на месяц">
+              </label>
+              <button id="saveOverallBudget" type="button" class="secondary">Сохранить</button>
+            </div>
+            <div id="budgetForecastStatus" class="budget-forecast-status" aria-live="polite">
+              Прогноз появится после сбора данных и сохранения лимита.
+            </div>
             <div class="budget-editor">
               <span class="select-control">
                 <select id="budgetCategory" aria-label="Категория бюджета"></select>
@@ -207,17 +302,33 @@
               <input id="budgetAmount" type="number" min="0" step="100" placeholder="Лимит, ₽" aria-label="Лимит бюджета">
               <button id="saveBudget" type="button" class="secondary">Сохранить</button>
             </div>
+            <button id="copyBudgetNextMonth" type="button" class="secondary budget-copy">Скопировать лимиты на следующий месяц</button>
             <div id="budgetBreakdown" class="budget-breakdown"></div>
-          </div>
+            </div>
+          </details>
+          <details id="refundCard" class="chart-panel refund-panel disclosure-card">
+            <summary class="panel-head">
+              <div>
+                <strong>Ожидаемые возвраты</strong>
+                <small>Раскройте, если ждёте деньги за возвращённую покупку.</small>
+              </div>
+              <span class="local-badge subtle-badge">На устройстве</span>
+            </summary>
+            <div class="disclosure-body">
+            <div id="refundClaims" class="refund-claims" aria-live="polite">
+              <div class="data-empty">Откройте покупку и отметьте, что ждёте возврат.</div>
+            </div>
+            </div>
+          </details>
         </div>
         <div class="chart-panel detail-panel">
           <div class="panel-head">
             <h3 id="detailTitle">Детали операций</h3>
             <div class="panel-head-actions">
               <div class="detail-operation-tabs" role="group" aria-label="Тип операций">
-                <button type="button" class="detail-operation active" data-operation="all">Все</button>
-                <button type="button" class="detail-operation" data-operation="purchase">Покупки</button>
-                <button type="button" class="detail-operation" data-operation="refund">Возвраты</button>
+                <button type="button" class="detail-operation active" data-operation="all" aria-pressed="true">Все</button>
+                <button type="button" class="detail-operation" data-operation="purchase" aria-pressed="false">Покупки</button>
+                <button type="button" class="detail-operation" data-operation="refund" aria-pressed="false">Возвраты</button>
               </div>
               <input id="detailSearch" class="detail-search" type="search" placeholder="Поиск по товару" aria-label="Поиск по товару">
               <label class="detail-page-size">
@@ -226,12 +337,29 @@
                   <option value="60" selected>60</option>
                   <option value="100">100</option>
                   <option value="200">200</option>
-                  <option value="all">Все</option>
+                  <option value="500">500</option>
                 </select>
               </label>
               <span id="detailSummary"></span>
               <button id="clearDetailFilter" type="button" class="secondary category-toggle" hidden>Сбросить</button>
             </div>
+          </div>
+          <div id="bulkBar" class="bulk-bar" hidden aria-live="polite">
+            <strong id="bulkCount">Выбрано: 0</strong>
+            <span class="select-control compact-select">
+              <select id="bulkCategory" aria-label="Категория для выбранных операций">
+                <option value="">Категория…</option>
+              </select>
+            </span>
+            <span class="select-control compact-select">
+              <select id="bulkProfile" aria-label="Профиль для выбранных операций">
+                <option value="">Профиль…</option>
+              </select>
+            </span>
+            <button id="bulkApply" type="button">Применить</button>
+            <button id="bulkExclude" type="button" class="secondary">Исключить</button>
+            <button id="bulkInclude" type="button" class="secondary">Вернуть</button>
+            <button id="bulkClear" type="button" class="secondary">Снять выбор</button>
           </div>
           <div id="detailRows" class="detail-rows"></div>
           <button id="detailMore" type="button" class="secondary detail-more" hidden>Показать ещё</button>
@@ -239,20 +367,388 @@
       </div>
     </section>
 
-    <section id="logView" class="panel view-panel technical-log" aria-label="Диагностика">
+    <section id="categoriesView" class="category-review-view view-panel" aria-label="Проверка категорий" aria-hidden="true">
+      <div class="data-titlebar category-review-titlebar">
+        <div>
+          <h2>Проверить покупки</h2>
+          <p>Здесь только те покупки, для которых MarketTrat не смог уверенно выбрать категорию. Подтверждённый ответ можно запомнить для похожих названий.</p>
+        </div>
+        <button id="reviewAllCategories" type="button" class="secondary">Показать уже разобранные</button>
+      </div>
+      <div id="categoryQualityKpis" class="category-quality-kpis"></div>
+      <div class="category-review-toolbar">
+        <input id="categoryReviewSearch" type="search" placeholder="Найти покупку, которая ждёт решения" aria-label="Поиск по покупкам, которые ждут решения">
+        <span id="categoryReviewSummary"></span>
+      </div>
+      <div id="categoryReviewList" class="category-review-list" aria-live="polite">
+        <div class="data-empty">После загрузки данных здесь появятся спорные категории.</div>
+      </div>
+      <button id="categoryReviewMore" type="button" class="secondary detail-more" hidden>Показать ещё</button>
+    </section>
+
+    <section id="controlView" class="control-view view-panel" aria-label="Советы по покупкам" aria-hidden="true">
+      <div class="data-titlebar control-titlebar">
+        <div>
+          <h2>Советы по покупкам</h2>
+          <p>Необычные операции, регулярные покупки, возвраты и гарантии. Всё считается по вашей истории на этом устройстве.</p>
+        </div>
+        <span class="local-badge">Без внешних сервисов</span>
+      </div>
+
+      <div id="controlKpis" class="category-quality-kpis"></div>
+
+      <div class="control-grid">
+        <details class="chart-panel control-card month-close-card disclosure-card" aria-labelledby="monthCloseTitle">
+          <summary class="panel-head">
+            <div>
+              <strong id="monthCloseTitle">Сохранить итог месяца</strong>
+              <small>Необязательно. Итог можно открыть и пересчитать снова.</small>
+            </div>
+          </summary>
+          <div class="disclosure-body">
+          <div class="control-form-row">
+            <input id="closeMonth" type="month" aria-label="Месяц для закрытия">
+            <button id="monthCloseAction" type="button">Сохранить итог</button>
+          </div>
+          <div id="monthCloseStatus" class="control-status" aria-live="polite"></div>
+          <div id="monthCloseChecklist" class="control-checklist"></div>
+          </div>
+        </details>
+
+        <details class="chart-panel control-card disclosure-card" aria-labelledby="anomalyTitle" open>
+          <summary class="panel-head">
+            <div>
+              <strong id="anomalyTitle">Необычные операции</strong>
+              <small>Возможные дубли, резкий рост цены и возвраты без найденной покупки.</small>
+            </div>
+            <span id="anomalySummary"></span>
+          </summary>
+          <div class="disclosure-body">
+          <div id="anomalyList" class="control-list" aria-live="polite"></div>
+          </div>
+        </details>
+
+        <details class="chart-panel control-card control-card-wide disclosure-card" aria-labelledby="recurringTitle">
+          <summary class="panel-head">
+            <div>
+              <strong id="recurringTitle">Регулярные покупки</strong>
+              <small>MarketTrat замечает повторы, а вы решаете, действительно ли это регулярный расход.</small>
+            </div>
+            <span id="recurringSummary"></span>
+          </summary>
+          <div class="disclosure-body">
+          <div id="recurringList" class="control-list" aria-live="polite"></div>
+          </div>
+        </details>
+
+        <details class="chart-panel control-card disclosure-card" aria-labelledby="priceHistoryTitle">
+          <summary class="panel-head">
+            <div>
+              <strong id="priceHistoryTitle">Как менялась цена</strong>
+              <small>Сравнение только с вашими прошлыми покупками похожего товара.</small>
+            </div>
+            <span id="priceHistorySummary"></span>
+          </summary>
+          <div class="disclosure-body">
+          <div id="priceHistoryList" class="control-list" aria-live="polite"></div>
+          </div>
+        </details>
+
+        <details class="chart-panel control-card disclosure-card" aria-labelledby="refundCenterTitle" open>
+          <summary class="panel-head">
+            <div>
+              <strong id="refundCenterTitle">Возвраты денег</strong>
+              <small>Что ещё ожидается, что пришло частично и где уже прошёл срок.</small>
+            </div>
+            <span id="refundCenterSummary"></span>
+          </summary>
+          <div class="disclosure-body">
+          <div id="refundCenterList" class="control-list" aria-live="polite"></div>
+          </div>
+        </details>
+
+        <details class="chart-panel control-card control-card-wide disclosure-card" aria-labelledby="warrantyTitle">
+          <summary class="panel-head">
+            <div>
+              <strong id="warrantyTitle">Чеки и гарантии</strong>
+              <small>Ссылки, сроки и заметки хранятся на устройстве. Сами файлы никуда не загружаются.</small>
+            </div>
+            <span id="warrantySummary"></span>
+          </summary>
+          <div class="disclosure-body">
+          <div id="warrantyList" class="control-list" aria-live="polite"></div>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section id="dataView" class="data-view view-panel" aria-label="Настройки и файлы" aria-hidden="true">
+      <div class="data-titlebar">
+        <div>
+          <h2>Настройки и файлы</h2>
+          <p>Здесь можно сохранить копию, разделить покупки и изменить свои правила.</p>
+        </div>
+        <button id="openDiagnostics" type="button" class="secondary">Помощь при ошибке <span id="logBadge" class="tab-badge" hidden>0</span></button>
+      </div>
+
+      <section id="localPrivacyCard" class="privacy-local-card" aria-labelledby="localPrivacyTitle">
+        <div class="privacy-icon" aria-hidden="true">✓</div>
+        <div>
+          <span class="local-badge">Хранится локально</span>
+          <h3 id="localPrivacyTitle">История остаётся на этом устройстве</h3>
+          <p>Во время запущенного вами сбора MarketTrat читает заказы на выбранных сайтах. История, профили и правила сохраняются в этом браузере. Скачанный вами файл окажется там, куда вы сами его сохраните или отправите.</p>
+          <button id="revokeSourcePermissions" type="button" class="secondary">Отозвать доступ к маркетплейсам</button>
+        </div>
+      </section>
+
+      <div class="data-grid">
+        <details class="chart-panel data-card disclosure-card" aria-labelledby="profilesTitle">
+          <summary class="panel-head">
+            <div>
+              <strong id="profilesTitle">Разделять покупки</strong>
+              <small>Необязательно. Например, на личные, семейные и рабочие.</small>
+            </div>
+          </summary>
+          <div class="disclosure-body">
+          <label class="data-field">
+            <span>Активный профиль</span>
+            <span class="select-control">
+              <select id="dataProfileSelect">
+                <option value="personal">Личный</option>
+              </select>
+            </span>
+          </label>
+          <label class="data-field">
+            <span>Название профиля</span>
+            <input id="dataProfileName" type="text" maxlength="60" placeholder="Например, Рабочее" autocomplete="off">
+          </label>
+          <div class="profile-actions">
+            <button id="addDataProfile" type="button">Добавить</button>
+            <button id="renameDataProfile" type="button" class="secondary">Переименовать</button>
+            <button id="deleteDataProfile" type="button" class="secondary danger-outline">Удалить</button>
+          </div>
+          </div>
+        </details>
+
+        <section class="chart-panel data-card" aria-labelledby="backupTitle">
+          <div class="panel-head">
+            <div>
+              <h3 id="backupTitle">Сохранить или перенести данные</h3>
+              <p class="card-hint">Резервная копия нужна для восстановления. Таблица открывается в Excel и Google Таблицах.</p>
+            </div>
+          </div>
+          <div class="backup-actions">
+            <button id="exportDataBackup" type="button">Скачать резервную копию</button>
+            <button id="importDataBackup" type="button" class="secondary">Восстановить из копии</button>
+            <input id="importDataBackupInput" type="file" accept=".json,application/json" hidden>
+            <button id="downloadFullCsv" type="button" class="secondary">Таблица всех покупок (CSV)</button>
+            <button id="downloadJson" type="button" class="secondary">Данные для программ (JSON)</button>
+            <button id="downloadAnonymousCsv" type="button" class="secondary">Таблица без названий — всё равно личная</button>
+          </div>
+          <p class="privacy-note">Резервная копия и CSV/JSON содержат финансовые данные. Полный CSV включает исключённые операции, профиль и заметки; резервная копия остаётся основным форматом восстановления. CSV без названий сохраняет месяцы, точные суммы, источники и категории — это не анонимный набор.</p>
+        </section>
+
+        <details class="chart-panel data-card disclosure-card" aria-labelledby="historyTitle">
+          <summary class="panel-head">
+            <div>
+              <strong id="historyTitle">Вернуть прошлую версию данных</strong>
+              <small>Последние сохранения после сборов, импорта и ручных правок.</small>
+            </div>
+          </summary>
+          <div class="disclosure-body">
+          <div id="dataHistoryList" class="data-list" aria-live="polite">
+            <div class="data-empty">История появится после первого сбора данных.</div>
+          </div>
+          </div>
+        </details>
+
+        <details class="chart-panel data-card disclosure-card" aria-labelledby="categoryRulesTitle">
+          <summary class="panel-head">
+            <div>
+              <strong id="categoryRulesTitle">Свои правила категорий</strong>
+              <small>Для тех, кто хочет автоматически разбирать покупки по своим словам.</small>
+            </div>
+          </summary>
+          <div class="disclosure-body">
+          <form id="categoryRuleForm" class="category-rule-form">
+            <label class="data-field">
+              <span>Слова или фразы через запятую</span>
+              <input id="categoryRulePattern" type="text" placeholder="Например, корм, кошки" autocomplete="off">
+            </label>
+            <label class="data-field">
+              <span>Категория</span>
+              <span class="select-control">
+                <select id="categoryRuleCategory">
+                  <option value="">Выберите категорию</option>
+                </select>
+              </span>
+            </label>
+            <label class="data-field">
+              <span>Совпадение</span>
+              <span class="select-control">
+                <select id="categoryRuleMatch">
+                  <option value="all">Все слова</option>
+                  <option value="any">Любое слово</option>
+                  <option value="exact">Точное название</option>
+                </select>
+              </span>
+            </label>
+            <label class="data-field">
+              <span>Маркетплейс</span>
+              <span class="select-control">
+                <select id="categoryRuleSource">
+                  <option value="">Все</option>
+                  <option value="ozon">Ozon</option>
+                  <option value="wildberries">Wildberries</option>
+                  <option value="yandex">Яндекс Маркет</option>
+                </select>
+              </span>
+            </label>
+            <label class="data-field">
+              <span>Не применять, если есть</span>
+              <input id="categoryRuleNegative" type="text" placeholder="Например, игрушка, чехол" autocomplete="off">
+            </label>
+            <button id="saveCategoryRule" type="submit">Добавить правило</button>
+          </form>
+          <p id="categoryRulePreview" class="rule-preview">Введите фразу — здесь появится число затронутых операций.</p>
+          <div id="categoryRuleList" class="data-list" aria-live="polite">
+            <div class="data-empty">Добавленные правила появятся здесь.</div>
+          </div>
+          </div>
+        </details>
+
+        <details class="chart-panel data-card data-card-wide disclosure-card" aria-labelledby="overridesTitle">
+          <summary class="panel-head">
+            <div>
+              <strong id="overridesTitle">Мои ручные изменения</strong>
+              <small>Изменённые категории и покупки, которые вы убрали из отчёта.</small>
+            </div>
+          </summary>
+          <div class="disclosure-body">
+          <div class="override-toolbar">
+            <input id="operationOverridesSearch" type="search" placeholder="Поиск по ручным правкам" aria-label="Поиск по ручным правкам">
+            <span id="operationOverridesSummary"></span>
+          </div>
+          <div id="operationOverridesList" class="data-list" aria-live="polite">
+            <div class="data-empty">Ручные изменения операций появятся здесь.</div>
+          </div>
+          <button id="operationOverridesMore" type="button" class="secondary detail-more" hidden>Показать ещё</button>
+          </div>
+        </details>
+
+        <section class="chart-panel data-card data-card-wide danger-zone" aria-labelledby="dangerZoneTitle">
+          <div>
+            <h3 id="dangerZoneTitle">Удалить локальные данные</h3>
+            <p class="card-hint">История покупок, профили, бюджеты и правила будут удалены с этого устройства без возможности восстановления.</p>
+          </div>
+          <button id="deleteAllData" type="button" class="danger-button">Удалить все данные</button>
+        </section>
+      </div>
+    </section>
+
+    <section id="logView" class="panel view-panel technical-log" aria-label="Помощь при ошибке" aria-hidden="true">
       <div class="panel-head">
-        <h2>Диагностика</h2>
+        <div>
+          <h2>Помощь при ошибке</h2>
+          <p class="card-hint">Обычно этот раздел не нужен. Здесь только технические сведения для разбора проблемы.</p>
+        </div>
         <div class="panel-head-actions">
-          <button id="copyLog" type="button" class="secondary">Копировать лог</button>
-          <button id="clearLog" type="button" class="secondary">Очистить лог</button>
+          <button id="backToSettings" type="button" class="secondary">Назад к настройкам</button>
+          <button id="copyLog" type="button" class="secondary">Скопировать сведения</button>
+          <button id="clearLog" type="button" class="secondary">Очистить</button>
         </div>
       </div>
       <pre id="log" tabindex="0"></pre>
     </section>
   </main>
+
+  <dialog id="operationEditor" class="operation-editor" aria-labelledby="operationEditorTitle">
+    <form class="operation-editor-form" method="dialog">
+      <div class="operation-editor-head">
+        <div>
+          <span class="local-badge subtle-badge">Локальная правка</span>
+          <h2 id="operationEditorTitle">Редактировать операцию</h2>
+        </div>
+        <button id="operationClose" type="submit" value="cancel" class="dialog-close" aria-label="Закрыть">×</button>
+      </div>
+
+      <div id="operationTitlePreview" class="operation-title-preview">Название выбранной операции</div>
+
+      <div class="operation-fields-grid">
+        <label class="data-field">
+          <span>Категория</span>
+          <span class="select-control">
+            <select id="operationCategorySelect">
+              <option value="">Выберите категорию</option>
+            </select>
+          </span>
+        </label>
+        <label class="data-field">
+          <span>Своя категория</span>
+          <input id="operationCategoryInput" type="text" placeholder="Название категории" autocomplete="off">
+        </label>
+        <label class="data-field">
+          <span>Чьи покупки</span>
+          <span class="select-control">
+            <select id="operationProfileSelect">
+              <option value="personal">Личный</option>
+            </select>
+          </span>
+        </label>
+        <label class="data-field operation-note-field">
+          <span>Заметка</span>
+          <textarea id="operationNote" rows="3" placeholder="Необязательная заметка"></textarea>
+        </label>
+      </div>
+
+      <div class="operation-checks">
+        <label class="check">
+          <input id="operationExcluded" type="checkbox">
+          <span><strong>Не учитывать эту операцию</strong><small>Она останется в базе, но исчезнет из сумм и графиков.</small></span>
+        </label>
+        <label class="check">
+          <input id="markRefundClaim" type="checkbox">
+          <span><strong>Жду возврат денег</strong><small>MarketTrat будет искать подходящий возврат в новых данных.</small></span>
+        </label>
+        <label class="check operation-apply-similar">
+          <input id="operationApplySimilar" type="checkbox">
+          <span><strong>Запомнить категорию для похожих покупок</strong><small id="operationSimilarHint">Перед сохранением покажем, сколько покупок изменится.</small></span>
+        </label>
+        <label class="check">
+          <input id="markWarranty" type="checkbox">
+          <span><strong>Сохранить ссылку на чек или гарантию</strong><small>Ссылка, срок и заметка останутся на этом устройстве.</small></span>
+        </label>
+      </div>
+
+      <div id="operationWarrantyFields" class="operation-warranty-fields" hidden>
+        <label class="data-field">
+          <span>Гарантия до</span>
+          <input id="operationWarrantyUntil" type="date">
+        </label>
+        <label class="data-field operation-document-field">
+          <span>Ссылка на чек или документ</span>
+          <input id="operationDocumentUrl" type="url" maxlength="2048" placeholder="https://…" autocomplete="off">
+        </label>
+        <label class="data-field operation-document-field">
+          <span>Заметка о гарантии</span>
+          <input id="operationWarrantyNote" type="text" maxlength="300" placeholder="Серийный номер, комплект, условия" autocomplete="off">
+        </label>
+      </div>
+
+      <div class="operation-editor-actions">
+        <button id="operationCancel" type="submit" value="cancel" class="secondary">Отмена</button>
+        <button id="operationSave" type="button">Сохранить изменения</button>
+      </div>
+    </form>
+  </dialog>
   <script src="categories.js"></script>
   <script src="csv.js"></script>
   <script src="update.js"></script>
+  <script src="preferences.js"></script>
+  <script src="intelligence.js"></script>
+  <script src="lifecycle.js"></script>
+  <script src="storage.js"></script>
+  <script src="privacy.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

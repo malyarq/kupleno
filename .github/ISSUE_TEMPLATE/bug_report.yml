@@ -1,0 +1,75 @@
+name: Сообщить об ошибке
+description: Проблема со сбором, интерфейсом, данными или выгрузкой
+title: "[Ошибка]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Не прикладывайте чеки, cookie, токены, полные ссылки на заказы и резервные копии. Для лога используйте кнопку безопасного копирования диагностики.
+  - type: input
+    id: version
+    attributes:
+      label: Версия MarketTrat
+      placeholder: Например, 0.14.0
+    validations:
+      required: true
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Браузер
+      options:
+        - Chrome
+        - Edge
+        - Yandex Browser
+        - Другой Chromium-браузер
+    validations:
+      required: true
+  - type: dropdown
+    id: marketplace
+    attributes:
+      label: Где возникла проблема
+      options:
+        - MarketTrat без привязки к магазину
+        - Ozon
+        - Wildberries
+        - Яндекс Маркет
+        - Несколько магазинов
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как повторить
+      description: Напишите короткие шаги от открытия расширения до ошибки.
+      placeholder: |
+        1. Открыл ...
+        2. Нажал ...
+        3. Увидел ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что ожидали
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Что произошло
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Безопасная диагностика
+      description: Необязательно. Вставьте только текст, полученный встроенной кнопкой безопасного копирования.
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Проверка перед отправкой
+      options:
+        - label: Я удалил личные данные, ссылки на заказы, cookie, токены и содержимое резервной копии.
+          required: true

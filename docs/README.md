@@ -1,0 +1,14 @@
+# Документация MarketTrat
+
+- [Архитектура и границы доверия](ARCHITECTURE.md)
+- [Данные, совместимость, обновление и откат](DATA_AND_COMPATIBILITY.md)
+- [Проверки](TESTING.md)
+- [Сопровождение и реакция на поломки](MAINTENANCE.md)
+- [Обязательные настройки GitHub](GITHUB_SETTINGS.md)
+- [Выпуск релиза](../RELEASE.md)
+- [Поддержка](../SUPPORT.md)
+- [Безопасность](../SECURITY.md)
+- [Конфиденциальность](../PRIVACY.md)
+- [История изменений](../CHANGELOG.md)
+
+Источник версии — `extension/manifest.json`. `package.json`, README и текущий раздел CHANGELOG обязаны совпадать с ним; это проверяется автоматически.
