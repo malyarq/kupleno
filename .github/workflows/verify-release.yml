@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: verify-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -44,3 +45,12 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 7
+
+      - name: Publish verified commit status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
+          -f state=success
+          -f context='MarketTrat verification'
+          -f description='Tests and reproducibility passed'
