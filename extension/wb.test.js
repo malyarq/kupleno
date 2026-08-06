@@ -1,5 +1,9 @@
 const assert = require('node:assert/strict');
-const { parseWbReceiptItems } = require('./background.js');
+const { allowedReceiptUrl, parseWbReceiptItems, wbOperationType } = require('./background.js');
+
+assert.equal(allowedReceiptUrl('https://receipt.wb.ru/receipt/123'), 'https://receipt.wb.ru/receipt/123');
+assert.throws(() => allowedReceiptUrl('https://evil.example/collect'), /запрещённый адрес чека/);
+assert.throws(() => allowedReceiptUrl('http://receipt.wb.ru/receipt/123'), /запрещённый адрес чека/);
 
 function wbItem(title, amount) {
   return `
@@ -22,4 +26,14 @@ const items = parseWbReceiptItems(`
   <div class="total"></div>
 `);
 
-assert.deepEqual(items, [{ title: 'Футболка оверсайз', amount: 1299, itemIndex: 1 }]);
+assert.deepEqual(items, [
+  { title: 'Футболка оверсайз', amount: 1299, itemIndex: 1 },
+  { title: 'Услуга доставки', amount: 100, itemIndex: 2 },
+  { title: 'Комиссия сервиса', amount: 15, itemIndex: 3 }
+]);
+assert.equal(items.reduce((sum, item) => sum + item.amount, 0), 1414);
+assert.equal(wbOperationType({}, 'purchase'), 'purchase');
+assert.equal(wbOperationType({}, 'refund'), 'refund');
+assert.equal(wbOperationType({ operationTypeId: 1 }, ''), 'purchase');
+assert.equal(wbOperationType({ operationTypeId: 2 }, ''), 'refund');
+assert.throws(() => wbOperationType({ operationTypeId: 99 }, ''), /неизвестный тип операции/);

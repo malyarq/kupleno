@@ -1,0 +1,15 @@
+{
+  "name": "markettrat-release-tools",
+  "private": true,
+  "version": "0.14.0",
+  "description": "Local release verification for MarketTrat",
+  "scripts": {
+    "package": "sh scripts/package-extension.sh",
+    "verify": "sh scripts/verify.sh",
+    "verify:reproducible": "sh scripts/check-reproducible.sh",
+    "verify:release": "sh scripts/verify-release-candidate.sh"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
