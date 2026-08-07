@@ -42,9 +42,16 @@ test('главный экран выбирает следующий шаг', () 
   assert.match(app, /function homeGuideTasks\(/);
   assert.match(app, /function renderHomeGuide\(/);
   assert.match(app, /tasks\.slice\(1, 2\)/);
-  assert.match(html, /id="toggleAnalyticsDetails"[^>]*aria-expanded="false"/);
-  assert.match(css, /\.secondary-analysis[\s\S]*?display: none !important/);
+  assert.match(html, /<details id="analyticsDetails"[^>]*>[\s\S]*?id="toggleAnalyticsDetails"[^>]*aria-expanded="false"/);
+  assert.ok(html.indexOf('id="periodChart"') < html.indexOf('id="analyticsDetails"'), 'динамика должна быть видна до дополнительных данных');
+  assert.match(app, /els\.analyticsDetails\.open = value/);
   assert.match(app, /friendlyWarningText/);
+});
+
+test('пример не превращает одинаковый товар в разные покупки', () => {
+  const demoBody = app.match(/function demoRows\(\) \{([\s\S]*?)\n\}/)?.[1] || '';
+  assert.doesNotMatch(demoBody, /— пример/);
+  assert.match(demoBody, /\n\s*title,/);
 });
 
 test('устаревшая категория подписок не предлагается новым пользователям', () => {

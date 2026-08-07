@@ -91,6 +91,7 @@ const els = {
   analyticsPurchasesLabel: document.getElementById('analyticsPurchasesLabel'),
   analyticsRefunds: document.getElementById('analyticsRefunds'),
   toggleAnalyticsDetails: document.getElementById('toggleAnalyticsDetails'),
+  analyticsDetails: document.getElementById('analyticsDetails'),
   reportTrust: document.getElementById('reportTrust'),
   reportTrustBadge: document.getElementById('reportTrustBadge'),
   reportTrustTitle: document.getElementById('reportTrustTitle'),
@@ -246,6 +247,7 @@ const collectSourcesStorageKey = 'markettrat-collect-sources-v1';
 const activeProfileStorageKey = 'markettrat-active-profile-v1';
 const dataProfileStorageKey = 'markettrat-data-profile-v1';
 const activeCollectJobStorageKey = 'markettrat-active-collect-job-v1';
+const updateCheckStorageKey = 'markettrat-update-check-v1';
 const featureStorage = globalThis.MarketTratStorage;
 const preferences = globalThis.MarketTratPreferences;
 const intelligence = globalThis.MarketTratIntelligence;
@@ -373,6 +375,10 @@ let categoryReviewShownCount = 5;
 let categoryReviewShowAll = false;
 let operationOverridesShownCount = 100;
 let currentReportText = '';
+let lastPeriodChartPeriods = [];
+let lastPeriodChartCategoryOrder = new Map();
+let lastPeriodChartLayout = '';
+let periodChartResizeFrame = 0;
 let selectedOperationRowId = '';
 const selectedOperationRowIds = new Set();
 let queuedCollectSources = null;
@@ -1025,7 +1031,8 @@ function captureAppState() {
     settings: appSettings,
     metadata: snapshotMetadata('Откат'),
     demoMode,
-    runDetailsOpen
+    runDetailsOpen,
+    analyticsDetailsOpen: els.analyticsDetails.open
   }));
 }
 
@@ -1041,6 +1048,7 @@ function restoreCapturedState(state) {
     demoMode = Boolean(state.demoMode);
     runDetailsOpen = Boolean(state.runDetailsOpen);
     updateResult(state.rows || [], {});
+    setAnalyticsDetailsExpanded(Boolean(state.analyticsDetailsOpen));
     renderQualitySummary(rows, lastCollectionReport.stats, {}, lastCollectionReport.warnings);
     showWarnings(lastCollectionReport.warnings);
     restoreSourceStatusesFromReport();
@@ -1623,15 +1631,38 @@ async function checkForUpdate() {
   const current = api?.runtime?.getManifest?.().version || '';
   if (!update || !current) return;
 
+  let cached = {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(updateCheckStorageKey) || '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) cached = parsed;
+  } catch {
+    localStorage.removeItem(updateCheckStorageKey);
+  }
+  const cachedLatest = update.normalizeVersion(cached.latest);
+  if (cachedLatest && update.isNewerVersion(cachedLatest, current)) showUpdateBanner(cachedLatest);
+
+  const checkedAt = Date.now();
+  if (!update.shouldCheckForUpdate(cached.checkedAt, checkedAt)) return;
+  try {
+    localStorage.setItem(updateCheckStorageKey, JSON.stringify({ ...cached, checkedAt }));
+  } catch {
+    // The check may still run when localStorage is unavailable.
+  }
+
   try {
     const response = await fetch(update.releaseApiUrl, {
-      cache: 'no-store',
+      cache: 'default',
       headers: { accept: 'application/vnd.github+json' }
     });
     if (!response.ok) return;
 
     const release = await response.json();
     const latest = update.normalizeVersion(release.tag_name || release.name);
+    try {
+      localStorage.setItem(updateCheckStorageKey, JSON.stringify({ checkedAt, latest }));
+    } catch {
+      // A version banner can still be shown without caching it.
+    }
     if (latest && update.isNewerVersion(latest, current)) showUpdateBanner(latest);
   } catch {
     // Update checks are best effort; the extension works offline.
@@ -2409,9 +2440,17 @@ function renderPeriodChart(periods, categoryOrder = new Map()) {
   const svg = els.periodChart;
   clearNode(svg);
 
-  const width = 960;
-  const height = 300;
-  const margin = { top: 18, right: 22, bottom: 44, left: 62 };
+  lastPeriodChartPeriods = periods;
+  lastPeriodChartCategoryOrder = categoryOrder;
+  const compact = window.innerWidth <= 760;
+  lastPeriodChartLayout = compact ? 'compact' : 'wide';
+  const width = compact ? 420 : 960;
+  const height = compact ? 260 : 300;
+  const margin = compact
+    ? { top: 16, right: 12, bottom: 42, left: 54 }
+    : { top: 18, right: 22, bottom: 44, left: 62 };
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.style.aspectRatio = `${width} / ${height}`;
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
   const mutedColor = cssVar('--muted', '#6b7280');
@@ -2613,9 +2652,9 @@ function scrollDetailsIntoView() {
 
 function setAnalyticsDetailsExpanded(expanded) {
   const value = Boolean(expanded);
+  els.analyticsDetails.open = value;
   document.body.classList.toggle('show-analytics-details', value);
   els.toggleAnalyticsDetails.setAttribute('aria-expanded', String(value));
-  els.toggleAnalyticsDetails.textContent = value ? 'Скрыть подробный отчёт' : 'Показать подробный отчёт';
 }
 
 function setDetailFilter(filter, scroll = false) {
@@ -3668,16 +3707,23 @@ function renderHomeGuide(refundResult = null) {
     return;
   }
   const tasks = homeGuideTasks(refundResult);
+  if (!tasks.length) {
+    els.homeGuide.hidden = true;
+    clearNode(els.homeNextStepList);
+    els.homeNextSteps.hidden = true;
+    return;
+  }
   const main = tasks[0];
-  els.homeGuide.classList.toggle('warning', Boolean(main));
+  els.homeGuide.hidden = false;
+  els.homeGuide.classList.toggle('warning', true);
   els.homeGuide.classList.toggle('danger', main?.kind === 'danger');
-  els.homeGuideKicker.textContent = main ? 'Что сделать сейчас' : 'На сегодня всё';
-  els.homeGuideTitle.textContent = main?.title || 'Срочных действий нет';
-  els.homeGuideText.textContent = main?.detail || 'По доступным проверкам всё спокойно. Можно посмотреть расходы или обновить покупки позже.';
-  els.homeGuidePrimary.textContent = main?.button || 'Обновить покупки';
-  homeGuidePrimaryAction = main?.action || (() => collectOnly(''));
-  els.homeGuideSecondary.textContent = main ? 'Обновить покупки' : 'Скачать таблицу';
-  homeGuideSecondaryAction = main ? (() => collectOnly('')) : downloadCsv;
+  els.homeGuideKicker.textContent = 'Что сделать сейчас';
+  els.homeGuideTitle.textContent = main.title;
+  els.homeGuideText.textContent = main.detail;
+  els.homeGuidePrimary.textContent = main.button;
+  homeGuidePrimaryAction = main.action;
+  els.homeGuideSecondary.textContent = 'Обновить покупки';
+  homeGuideSecondaryAction = () => collectOnly('');
 
   clearNode(els.homeNextStepList);
   const next = tasks.slice(1, 2);
@@ -4887,7 +4933,7 @@ function demoRows() {
       result.push({
         date: dateText,
         source,
-        title: `${title}${offset % 2 ? '' : ' — пример'}`,
+        title,
         amount: (amount + (5 - offset) * 130).toFixed(2),
         currency: 'RUB',
         category,
@@ -4911,6 +4957,7 @@ function showDemo() {
   demoRestoreState = captureAppState();
   demoMode = true;
   hasCollected = true;
+  setAnalyticsDetailsExpanded(false);
   setActiveView('analytics');
   updateResult(demoRows(), {});
   renderQualitySummary(rows, {}, {}, []);
@@ -5753,8 +5800,18 @@ els.analyticsRefunds.parentElement.title = 'Показать возвраты';
 makeClickable(els.analyticsRefunds.parentElement, () => showKpiDetails('refund'));
 els.analyticsPurchases.parentElement.title = 'Показать все операции';
 makeClickable(els.analyticsPurchases.parentElement, () => showKpiDetails('all'));
-els.toggleAnalyticsDetails.addEventListener('click', () => {
-  setAnalyticsDetailsExpanded(!document.body.classList.contains('show-analytics-details'));
+els.analyticsDetails.addEventListener('toggle', () => {
+  const expanded = els.analyticsDetails.open;
+  document.body.classList.toggle('show-analytics-details', expanded);
+  els.toggleAnalyticsDetails.setAttribute('aria-expanded', String(expanded));
+});
+window.addEventListener('resize', () => {
+  const nextLayout = window.innerWidth <= 760 ? 'compact' : 'wide';
+  if (nextLayout === lastPeriodChartLayout) return;
+  cancelAnimationFrame(periodChartResizeFrame);
+  periodChartResizeFrame = requestAnimationFrame(() => {
+    renderPeriodChart(lastPeriodChartPeriods, lastPeriodChartCategoryOrder);
+  });
 });
 els.toggleRunDetails.addEventListener('click', () => {
   runDetailsOpen = !runDetailsOpen;

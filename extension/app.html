@@ -225,45 +225,14 @@
         <div><strong id="analyticsPurchases">0</strong><span id="analyticsPurchasesLabel">операций</span></div>
       </div>
 
-      <button id="toggleAnalyticsDetails" type="button" class="secondary analytics-details-toggle" aria-expanded="false">Показать подробный отчёт</button>
-
-      <section id="reportTrust" class="report-trust" hidden aria-live="polite">
-        <div>
-          <span id="reportTrustBadge" class="local-badge">Качество отчёта</span>
-          <strong id="reportTrustTitle">Данные готовы к анализу</strong>
-          <span id="reportTrustText"></span>
-          <div id="reportTrustSources" class="report-trust-sources"></div>
-        </div>
-        <div class="report-trust-actions">
-          <button id="openCollectionAudit" type="button" class="secondary">Проверить сбор</button>
-          <button id="openCategoryReview" type="button" class="secondary">Уточнить категории</button>
-        </div>
-      </section>
-
-      <section id="moneyRecovery" class="money-recovery" hidden aria-live="polite">
-        <div>
-          <span class="local-badge">Можно вернуть</span>
-          <strong id="moneyRecoveryTitle">Возвраты под контролем</strong>
-          <span id="moneyRecoveryText"></span>
-        </div>
-        <button id="openMoneyRecovery" type="button">Открыть возвраты</button>
-      </section>
-
-      <section id="actionSummary" class="chart-panel action-summary" hidden aria-labelledby="actionSummaryTitle">
-        <div class="panel-head">
-          <div>
-            <h3 id="actionSummaryTitle">Что ещё заметно</h3>
-            <p class="card-hint">Нажмите на вывод, чтобы увидеть покупки, из которых он получился.</p>
-          </div>
-        </div>
-        <div id="actionInsightList" class="action-insight-list"></div>
-      </section>
-
       <div class="analytics-layout">
         <div class="analytics-main">
-          <div class="chart-panel secondary-analysis">
+          <div class="chart-panel spend-dynamics-panel">
             <div class="panel-head">
-              <h3>Динамика расходов</h3>
+              <div>
+                <h3>Динамика расходов</h3>
+                <p class="card-hint">Нажмите столбец, чтобы открыть покупки за этот период.</p>
+              </div>
               <div class="panel-head-actions">
                 <span id="chartRange"></span>
                 <span class="select-control compact-select">
@@ -278,7 +247,10 @@
           </div>
           <div class="chart-panel">
             <div class="panel-head">
-              <h3>Категории</h3>
+              <div>
+                <h3>Категории</h3>
+                <p class="card-hint">Нажмите категорию, чтобы увидеть её покупки.</p>
+              </div>
               <div class="panel-head-actions">
                 <span id="categorySummary"></span>
                 <span class="select-control compact-select">
@@ -298,24 +270,72 @@
             </div>
             <div id="categoryBreakdown" class="category-breakdown"></div>
           </div>
-          <div class="chart-panel spend-report-panel secondary-analysis">
-            <div class="panel-head">
-              <h3>Куда ушли деньги</h3>
-              <button id="copyReport" type="button" class="secondary category-toggle">Копировать</button>
-            </div>
-            <div id="spendReport" class="spend-report"></div>
-          </div>
         </div>
         <div class="analytics-side">
-          <div class="chart-panel secondary-analysis">
-            <h3>Источники</h3>
-            <div id="sourceBreakdown" class="breakdown"></div>
-          </div>
           <div class="chart-panel">
             <h3>Топ трат</h3>
+            <p class="card-hint">Нажмите товар, чтобы увидеть все связанные операции.</p>
             <ol id="topItems" class="top-items"></ol>
           </div>
-          <details id="budgetCard" class="chart-panel disclosure-card secondary-analysis">
+        </div>
+      </div>
+
+      <section id="actionSummary" class="chart-panel action-summary" hidden aria-labelledby="actionSummaryTitle">
+        <div class="panel-head">
+          <div>
+            <h3 id="actionSummaryTitle">Изменения в расходах</h3>
+            <p class="card-hint">Сравниваем выбранный период с предыдущим. Для всего периода — два последних месяца. Нажмите карточку, чтобы увидеть связанные покупки.</p>
+          </div>
+        </div>
+        <div id="actionInsightList" class="action-insight-list"></div>
+      </section>
+
+      <section id="moneyRecovery" class="money-recovery" hidden aria-live="polite">
+        <div>
+          <span class="local-badge">Можно вернуть</span>
+          <strong id="moneyRecoveryTitle">Возвраты под контролем</strong>
+          <span id="moneyRecoveryText"></span>
+        </div>
+        <button id="openMoneyRecovery" type="button">Открыть возвраты</button>
+      </section>
+
+      <details id="analyticsDetails" class="chart-panel disclosure-card analytics-more">
+        <summary id="toggleAnalyticsDetails" class="analytics-details-toggle" aria-expanded="false">
+          <span>
+            <strong>Операции и дополнительные данные</strong>
+            <small>Все покупки, магазины, бюджет и проверка полноты сбора.</small>
+          </span>
+        </summary>
+        <div class="disclosure-body analytics-more-body">
+          <section id="reportTrust" class="report-trust" hidden aria-live="polite">
+            <div>
+              <span id="reportTrustBadge" class="local-badge">Качество отчёта</span>
+              <strong id="reportTrustTitle">Данные готовы к анализу</strong>
+              <span id="reportTrustText"></span>
+              <div id="reportTrustSources" class="report-trust-sources"></div>
+            </div>
+            <div class="report-trust-actions">
+              <button id="openCollectionAudit" type="button" class="secondary">Проверить сбор</button>
+              <button id="openCategoryReview" type="button" class="secondary">Уточнить категории</button>
+            </div>
+          </section>
+
+          <div class="analytics-layout analytics-extra-layout">
+            <div class="analytics-main">
+              <div class="chart-panel spend-report-panel">
+                <div class="panel-head">
+                  <h3>Куда ушли деньги</h3>
+                  <button id="copyReport" type="button" class="secondary category-toggle">Копировать</button>
+                </div>
+                <div id="spendReport" class="spend-report"></div>
+              </div>
+            </div>
+            <div class="analytics-side">
+              <div class="chart-panel">
+                <h3>По магазинам</h3>
+                <div id="sourceBreakdown" class="breakdown"></div>
+              </div>
+              <details id="budgetCard" class="chart-panel disclosure-card">
             <summary>
               <span><strong>Бюджет на месяц</strong><small>Необязательно. Раскройте, если хотите задать лимит.</small></span>
             </summary>
@@ -344,8 +364,8 @@
             <button id="copyBudgetNextMonth" type="button" class="secondary budget-copy">Скопировать лимиты на следующий месяц</button>
             <div id="budgetBreakdown" class="budget-breakdown"></div>
             </div>
-          </details>
-          <details id="refundCard" class="chart-panel refund-panel disclosure-card secondary-analysis">
+              </details>
+              <details id="refundCard" class="chart-panel refund-panel disclosure-card">
             <summary class="panel-head">
               <div>
                 <strong>Ожидаемые возвраты</strong>
@@ -358,9 +378,9 @@
               <div class="data-empty">Откройте покупку и отметьте, что ждёте возврат.</div>
             </div>
             </div>
-          </details>
-        </div>
-        <div class="chart-panel detail-panel secondary-analysis">
+              </details>
+            </div>
+            <div class="chart-panel detail-panel">
           <div class="panel-head">
             <h3 id="detailTitle">Детали операций</h3>
             <div class="panel-head-actions">
@@ -402,8 +422,10 @@
           </div>
           <div id="detailRows" class="detail-rows"></div>
           <button id="detailMore" type="button" class="secondary detail-more" hidden>Показать ещё</button>
+            </div>
+          </div>
         </div>
-      </div>
+      </details>
     </section>
 
     <section id="categoriesView" class="category-review-view view-panel" role="tabpanel" tabindex="-1" inert aria-label="Категории покупок" aria-hidden="true">

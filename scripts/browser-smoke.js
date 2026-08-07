@@ -9,6 +9,7 @@ const { chromium } = require('playwright');
 const root = path.join(__dirname, '..');
 const extensionDir = path.resolve(process.argv[2] || path.join(root, 'extension'));
 const manifestPath = path.join(extensionDir, 'manifest.json');
+const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 const outputDir = path.join(root, 'dist', 'browser-smoke');
 
 assert.equal(fs.existsSync(manifestPath), true, `не найден manifest.json: ${manifestPath}`);
@@ -78,6 +79,11 @@ async function main() {
       const url = request.url();
       if (/^https?:/u.test(url)) externalRequests.push(url);
     });
+    await context.route('https://api.github.com/repos/malyarq/market-trat/releases/latest', (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ tag_name: `v${manifest.version}` })
+    }));
 
     let worker = context.serviceWorkers()[0];
     if (!worker) worker = await context.waitForEvent('serviceworker', { timeout: 15_000 });
@@ -142,18 +148,21 @@ async function main() {
     assert.ok(await page.locator('#analyticsTotal').textContent());
     assert.equal(await page.locator('#categoryBreakdown').isVisible(), true, 'категории должны оставаться на главном экране');
     assert.equal(await page.locator('#topItems').isVisible(), true, 'крупные траты должны оставаться на главном экране');
-    assert.equal(await page.locator('#periodChart').isVisible(), false, 'подробная аналитика должна быть свёрнута');
+    assert.equal(await page.locator('#periodChart').isVisible(), true, 'динамика расходов должна быть видна сразу');
+    assert.equal(await page.locator('#analyticsDetails').isVisible(), false, 'пример не должен показывать необязательные настройки и таблицу');
     assert.equal(await page.locator('.detail-panel').isVisible(), false, 'таблица операций не должна перегружать главный экран');
+    assert.equal(await page.locator('#topItems .top-item').count(), 3, 'одинаковые товары в примере не должны дробиться из-за служебной пометки');
     await page.screenshot({ path: path.join(outputDir, 'example-desktop.png'), fullPage: true });
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('#analyticsView').scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => document.querySelector('#periodChart')?.getAttribute('viewBox') === '0 0 420 260');
     const skipLinkState = await page.evaluate(() => {
       const link = document.querySelector('#skipLink');
       const rect = link.getBoundingClientRect();
-      return { active: document.activeElement?.id, top: rect.top, bottom: rect.bottom, transform: getComputedStyle(link).transform };
+      return { active: document.activeElement?.id, width: rect.width, height: rect.height, clipPath: getComputedStyle(link).clipPath };
     });
-    assert.ok(skipLinkState.bottom <= 0, `клавиатурная ссылка видна без фокуса: ${JSON.stringify(skipLinkState)}`);
+    assert.ok(skipLinkState.width <= 1 && skipLinkState.height <= 1 && skipLinkState.clipPath !== 'none', `клавиатурная ссылка видна без фокуса: ${JSON.stringify(skipLinkState)}`);
     const pageWidth = await page.evaluate(() => ({
       viewport: window.innerWidth,
       document: document.documentElement.scrollWidth
@@ -163,6 +172,8 @@ async function main() {
       const box = await page.locator(selector).boundingBox();
       assert.ok(box && box.x >= -1 && box.x + box.width <= 391, `${selector} выходит за ширину экрана: ${JSON.stringify(box)}`);
     }
+    const mobileChartBox = await page.locator('#periodChart').boundingBox();
+    assert.ok(mobileChartBox && mobileChartBox.height >= 180 && mobileChartBox.height <= 230, `график на мобильном должен быть читаемым без пустой высоты: ${JSON.stringify(mobileChartBox)}`);
     await page.screenshot({ path: path.join(outputDir, 'example-mobile.png'), fullPage: true });
 
     await page.locator('#demoExit').click();
@@ -191,6 +202,11 @@ async function main() {
     assert.match(detailedCategories, /Обувь/u);
     assert.match(detailedCategories, /Электроника/u);
     await page.locator('#categoryLevel').selectOption('macro');
+    assert.equal(await page.locator('#periodChart').isVisible(), true, 'динамика должна быть видна без отдельной кнопки');
+    assert.equal(await page.locator('#analyticsDetails').getAttribute('open'), null, 'операции и дополнительные данные должны быть свёрнуты');
+    const chartBox = await page.locator('.spend-dynamics-panel').boundingBox();
+    const extrasBox = await page.locator('#analyticsDetails').boundingBox();
+    assert.ok(chartBox && extrasBox && chartBox.y < extrasBox.y, 'сначала должен идти основной график, затем дополнительные данные');
 
     await page.evaluate(() => {
       const synthetic = Array.from({ length: 1000 }, (_, index) => ({
@@ -227,6 +243,15 @@ async function main() {
     await page.waitForFunction(() => document.querySelector('#downloadCsv')?.textContent?.includes('(3)'));
 
     await page.locator('#toggleAnalyticsDetails').click();
+    await page.locator('.detail-panel').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#analyticsDetails').getAttribute('open'), '', 'нижние данные должны раскрываться одним понятным блоком');
+    await page.screenshot({ path: path.join(outputDir, 'analytics-more-desktop.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForFunction(() => document.querySelector('#periodChart')?.getAttribute('viewBox') === '0 0 420 260');
+    const expandedPageWidth = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
+    assert.ok(expandedPageWidth.document <= expandedPageWidth.viewport, `раскрытый отчёт переполнен: ${JSON.stringify(expandedPageWidth)}`);
+    await page.screenshot({ path: path.join(outputDir, 'analytics-more-mobile.png'), fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 720 });
     await page.getByRole('button', { name: /Изменить операцию Кофе зерновой/u }).click();
     await page.locator('#operationEditor').waitFor({ state: 'visible' });
     await page.locator('#markRefundClaim').check();
