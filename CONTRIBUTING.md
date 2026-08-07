@@ -5,11 +5,13 @@
 Нужны Git, Node.js из `.nvmrc`, `zip`, `unzip` и `shasum`.
 
 ```sh
+npm ci
+npx playwright install chromium
 npm run verify
 npm run verify:reproducible
 ```
 
-Зависимостей npm у runtime нет. Расширение загружается в Chromium через `chrome://extensions → Режим разработчика → Загрузить распакованное расширение` из папки `extension`.
+Зависимостей npm у runtime нет. Playwright — только зафиксированный инструмент проверки интерфейса. Расширение загружается в Chromium через `chrome://extensions → Режим разработчика → Загрузить распакованное расширение` из папки `extension`.
 
 ## Правила изменения
 
@@ -19,6 +21,7 @@ npm run verify:reproducible
 - Изменение storage, snapshot или backup сопровождайте миграцией, старой fixture и тестом отката по [контракту данных](docs/DATA_AND_COMPATIBILITY.md).
 - Изменение разрешений синхронизируйте с `PRIVACY.md`, `README.md` и `extension/manifest.test.js`.
 - Изменение пользовательского сценария проверяйте в браузере на обычной и узкой ширине.
+- Изменение категорий сопровождайте примером в `extension/category-benchmark.json`; опасная неоднозначность должна оставаться на ручную проверку.
 - Версии в `manifest.json`, `package.json`, README и CHANGELOG должны совпадать.
 
 ## Перед pull request

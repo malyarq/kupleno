@@ -10,6 +10,8 @@ README.md
 app.css
 app.html
 app.js
+analytics-core.js
+analytics-utils.js
 background.js
 categories.js
 category-rules.json
@@ -26,6 +28,8 @@ lifecycle.js
 manifest.json
 preferences.js
 privacy.js
+report-quality.js
+source-health.js
 storage.js
 update.js
 vendor/pdf.mjs

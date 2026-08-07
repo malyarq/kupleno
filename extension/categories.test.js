@@ -16,7 +16,7 @@ for (const [title, category] of [
   ['Xiaomi Весы напольные электронные с приложением для дома 180 кг', 'Бытовая техника'],
   ['LYC Ресницы пучковые для наращивания', 'Красота и уход'],
   ['LUXVISAGE Жидкие тени для век Metal hype', 'Красота и уход'],
-  ['Скотч прозрачный Альянс, клейкая лента 180м', 'Продукты'],
+  ['Скотч прозрачный Альянс, клейкая лента 180м', 'Дом'],
   ['Подарочный набор для девочек KUROMI фиолетовый блокнот 18*13 см на замке', 'Канцтовары'],
   ['Канцелярский нож Attache строительный, ширина лезвия 18 мм', 'Ремонт'],
   ['Гирлянда ИКЕА нить ЛЕДЛЬЮС, 7.5 м, 24 лампы', 'Дом'],
@@ -32,9 +32,9 @@ for (const [title, category] of [
   ['Процессор AMD Ryzen 5 7500F AM5, OEM', 'Электроника'],
   ['Блок питания 1STPLAYER NGDP, 750W, ATX3.1', 'Электроника'],
   ['Фен для волос с BLDC-мотором и диффузором', 'Бытовая техника'],
-  ['Ключ активации для подключения к приватной сети, на 6 месяцев', 'Подписки'],
+  ['Ключ активации для подключения к приватной сети, на 6 месяцев', 'Цифровые покупки'],
   ['Благотворительный сертификат фонда "Онкологика"', 'Благотворительность'],
-  ['POD система Vaporesso XROS 3 MINI', 'Продукты'],
+  ['POD система Vaporesso XROS 3 MINI', 'Табак и никотин'],
   ['BIODERMA Sensibio Очищающий гель для умывания', 'Красота и уход'],
   ['Конструктор Mercedes-AMG F1 W14 E Performance, набор деталей', 'Игрушки'],
   ['Многофункциональная овощерезка Oursson 8 в 1', 'Дом'],
@@ -42,7 +42,7 @@ for (const [title, category] of [
   ['Мариам Петросян. Дом, в котором...', 'Книги'],
   ['Носки-тапочки женские MINAKU "Зайка"', 'Обувь'],
   ['Шкант 10х45 мм мебельный деревянный отборный', 'Ремонт'],
-  ['Ключ для сервиса защищенной и ускоренной сети, 1 месяц', 'Подписки'],
+  ['Ключ для сервиса защищенной и ускоренной сети, 1 месяц', 'Цифровые покупки'],
   ['Корректор осанки. Корсет для спины Right Route', 'Здоровье'],
   ['Новогодний подарочный набор чая', 'Продукты'],
   ['Кигуруми размер M для взрослых', 'Одежда'],
@@ -58,7 +58,12 @@ for (const [title, category] of [
   ['Ozon PDF не разобран: чек', 'unknown'],
   ['Подарочный набор', 'unknown']
 ]) {
-  assert.equal(guessSpendCategory(title), category, title);
+  const result = classifySpendCategory(title);
+  assert.ok(
+    result.category === category
+      || (result.category === 'unknown' && result.suggestedCategory === category && result.needsReview),
+    `${title}: ожидалась категория ${category}, получено ${result.category}, подсказка ${result.suggestedCategory}`
+  );
 }
 
 assert.equal(guessSpendCategory('Очень редкий qwertycustom товар'), 'unknown');
@@ -66,8 +71,8 @@ assert.equal(setSpendCategoryRules({
   rules: [{ category: 'Хобби и творчество', weight: 9, tokens: ['qwertycustom'] }]
 }), 1);
 assert.equal(guessSpendCategory('Очень редкий qwertycustom товар'), 'Хобби и творчество');
-setSpendCategoryRules({ rules: [{ category: 'Подписки', weight: 9, tokens: ['steam'] }] });
-assert.equal(guessSpendCategory('Iron Sky электронный ключ PC Steam'), 'Подписки');
+setSpendCategoryRules({ rules: [{ category: 'Цифровые покупки', weight: 9, tokens: ['steam'] }] });
+assert.equal(guessSpendCategory('Iron Sky электронный ключ PC Steam'), 'Цифровые покупки');
 setSpendCategoryRules({ rules: [] });
 
 // v2 must make a decision auditable. These deliberately overlap: the old
@@ -104,12 +109,19 @@ const adversarialCases = [
   ['зарядный кабель usb', 'Электроника'],
   ['вилка Smartbuy', 'Ремонт'],
   ['крем обувной', 'Бытовая химия'],
-  ['зелёный чай матча', 'Продукты']
+  ['зелёный чай матча', 'Продукты'],
+  ['крем сливочный 20%', 'Продукты'],
+  ['крем для торта ванильный', 'Продукты'],
+  ['чехол для электронной книги', 'Аксессуары']
 ];
 
 for (const [title, category] of adversarialCases) {
   const result = classifySpendCategory(title);
-  assert.equal(result.category, category, title);
+  assert.ok(
+    result.category === category
+      || (result.category === 'unknown' && result.suggestedCategory === category && result.needsReview),
+    `${title}: ожидалась категория ${category}, получено ${result.category}, подсказка ${result.suggestedCategory}`
+  );
   assert.equal(result.suggestedCategory, category, `${title}: suggestion`);
   assert.ok(result.confidence > 0 && result.confidence <= 1, `${title}: confidence`);
   assert.ok(Array.isArray(result.evidence) && result.evidence.length, `${title}: evidence`);
@@ -140,7 +152,8 @@ assert.equal(conflicting.candidates[0].score, conflicting.candidates[1].score);
 assert.ok(conflicting.confidence < 0.5);
 
 const weak = classifySpendCategory('шампур');
-assert.equal(weak.category, 'Дом');
+assert.equal(weak.category, 'unknown');
+assert.equal(weak.suggestedCategory, 'Дом');
 assert.equal(weak.needsReview, true);
 assert.ok(weak.confidence < 0.64);
 
@@ -149,7 +162,7 @@ for (const [title, suggestion] of [
   ['Кольцо для ключей', 'Украшения']
 ]) {
   const result = classifySpendCategory(title);
-  assert.equal(result.category, suggestion, title);
+  assert.equal(result.category, 'unknown', title);
   assert.equal(result.suggestedCategory, suggestion, title);
   assert.equal(result.needsReview, true, `${title}: общий одиночный признак требует проверки`);
 }
@@ -161,9 +174,9 @@ assert.deepEqual(classifySpendCategory('Подарочный набор'), {
 assert.equal(classifySpendCategory({ raw_title: 'чай зелёный' }).category, 'Продукты');
 
 // A local pack may replace an embedded token, but must not score it twice.
-setSpendCategoryRules({ rules: [{ category: 'Подписки', weight: 9, tokens: ['steam'] }] });
+setSpendCategoryRules({ rules: [{ category: 'Цифровые покупки', weight: 9, tokens: ['steam'] }] });
 const localDuplicate = classifySpendCategory('Steam');
-assert.equal(localDuplicate.category, 'Подписки');
+assert.equal(localDuplicate.category, 'Цифровые покупки');
 assert.equal(localDuplicate.candidates[0].score, 10);
 assert.deepEqual(localDuplicate.evidence, [{ token: 'steam', kind: 'exact', source: 'local', score: 10 }]);
 setSpendCategoryRules({ rules: [{ category: 'Локальная категория', weight: 10, tokens: ['privateitem'] }] });

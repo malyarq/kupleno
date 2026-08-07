@@ -4,14 +4,14 @@
       'электронный сертификат помощи', 'сертификат помощи',
       'благотворительный сертификат', 'онкологика'
     ]],
-    ['Подписки', 9, [
+    ['Цифровые покупки', 9, [
       'яндекс плюс', 'подписка', 'онлайн кинотеатр', 'музыкальная подписка',
       'office 365', 'microsoft office', 'бессрочный аккаунт',
       'ключ активации', 'windows 11', 'steam', 'электронный ключ pc',
       'прокси vless', 'vless', 'приватной сети', 'защищенной сети',
       'ускоренной сети', 'без ограничения скорости'
     ]],
-    ['Продукты', 8, [
+    ['Дом', 8, [
       'упаковочная бумага', 'подарочная бумага', 'подарочная коробка',
       'коробка для подарка', 'упакуй красиво', 'скотч прозрачный',
       'клейкая лента', 'пупырчатая пленка', 'воздушно пузырьковая',
@@ -27,14 +27,17 @@
       'для заморозки', 'пищевые', 'зефир', 'чипсы',
       'мармелад', 'батон', 'филе', 'чиабатта', 'пита', 'говядиной', 'мороженое',
       'коин с черникой', 'шоколадное яйцо', 'пиво', 'вино', 'сидр', 'шампанск',
-      'водка', 'коньяк', 'виски', 'ром', 'алкоголь', 'табак', 'сигарет',
+      'водка', 'коньяк', 'виски', 'ром', 'алкоголь',
       'пончик', 'снеки', 'попкорн', 'энергетический напиток', 'псиллиум',
       'арахисовая паста', 'сахарозаменитель', 'пребиосвит', 'цикорий',
       'wildberries пакет', 'пакет майка пнд', 'пакет металлоцен', 'пакет 22х32',
       'ореховая паста', 'без сахара', 'настойки', 'смесь для глинтвейна',
       'глинтвейна', 'орехов', 'миндаль', 'фисташ', 'кешью',
-      'кофейный', 'maccoffee', 'pod система', 'vaporesso', 'xros',
-      'электронная сигарета', 'вейп', 'подарочный набор чая', 'набор чая'
+      'кофейный', 'maccoffee', 'подарочный набор чая', 'набор чая'
+    ]],
+    ['Табак и никотин', 8, [
+      'табак', 'сигарет', 'pod система', 'pod-система', 'vaporesso', 'xros',
+      'электронная сигарета', 'вейп', 'жидкость для вейпа', 'испаритель для вейпа'
     ]],
     ['Бытовая химия', 8, [
       'порошок', 'гель для стирки', 'капсулы для стирки', 'кондиционер для белья',
@@ -52,7 +55,7 @@
       'чистящая паста', 'для уборки', 'glade', 'сменный баллон'
     ]],
     ['Красота и уход', 6, [
-      'шампун', 'бальзам', 'маска для волос', 'гель для душа', 'мыло', 'крем', 'сыворотк',
+      'шампун', 'бальзам', 'маска для волос', 'гель для душа', 'мыло', 'сыворотк',
       'тоник', 'лосьон', 'дезодорант', 'антиперспирант', 'зубная паста', 'щетка зубная',
       'бритва', 'лезвия', 'парфюм', 'туалетная вода', 'косметик', 'тушь', 'помада',
       'лак для ногтей', 'мицелляр', 'патчи', 'глиттер', 'блестки для глаз', 'маска для лица',
@@ -116,7 +119,7 @@
       'майка', 'боди', 'джемпер', 'кофта', 'зипка', 'пиджак', 'варежки',
       'корсет', 'костюм', 'свитшот', 'шорты', 'штаны', 'сорочка',
       'ночная сорочка', 'бомбер', 'туника', 'оверсайз', 'рубчик', 'футер',
-      'термоноски', 'велосипедки', 'чулки', 'леггинсы спортивные', 'тайтсы',
+      'термоноски', 'термобель', 'велосипедки', 'чулки', 'леггинсы спортивные', 'тайтсы',
       'футболка спортивная', 'спортивная кофта', 'кофта на молнии',
       'плюшевая пижама', 'пижама с вышивкой', 'вязаный джемпер',
       'джемпер шерстяной', 'футболка mercedes', 'кигуруми', 'кингуруми'
@@ -156,7 +159,7 @@
       'pla', 'petg', 'tpu', 'abs', 'филамент', 'creality', 'bambu lab', 'esun',
       'kingroon', 'hotend', 'хотэнд', 'сопло', 'термистор', 'катушка нити',
       'пластик для 3d', 'расходник для печати', 'dry box', 'раскраска по номерам',
-      'вышивк', 'мулине', 'пряжа', 'спицы', 'крючок для вязания', 'швейная машинка',
+      'вышив', 'мулине', 'пряжа', 'спицы', 'крючок для вязания', 'швейная машинка',
       'выжигание', 'гравюра', 'оригами', 'моделизм', 'скетчбук', 'акварели',
       'пастели', 'сантиметровая лента', 'для шитья', 'портновский', 'открытка',
       'картины по номерам', 'стикер', 'татуировка временная', 'переводная татуировка',
@@ -343,7 +346,7 @@
       'игрушк', 'конструктор', 'lego', 'кукл', 'машинка', 'пазл', 'настольная игра',
       'мягкая игрушка', 'робот игрушка', 'головоломк', 'слайм', 'пластилин',
       'гоночные машины', 'magic tracks', 'твистер', 'игра напольная',
-      'конструктор mercedes', 'набор деталей', 'игрушка подушка', 'нарды'
+      'конструктор mercedes', 'игрушка подушка', 'нарды'
     ]],
     ['Сад', 7, [
       'семена', 'рассада', 'грунт', 'удобрение', 'кашпо', 'горшок для растений',
@@ -359,19 +362,43 @@
     ['Бытовая химия', 12, ['крем для обуви', 'крем обувной', 'воск для обуви', 'соль для посудомойки']],
     ['Мебель', 12, ['кофейный столик', 'журнальный столик', 'чайный столик']],
     ['Ремонт', 12, ['мозаика для ванной', 'плитка мозаика', 'мозаика настенная']],
-    ['Продукты', 10, ['мясо для шашлыка', 'шашлык из мяса', 'чай зеленый', 'зеленый чай']],
+    ['Продукты', 11, [
+      'мясо для шашлыка', 'шашлык из мяса', 'чай зеленый', 'зеленый чай',
+      'крем сливочный', 'сливочный крем', 'крем для торта', 'кондитерский крем',
+      'крем суп', 'крем мед', 'мед крем'
+    ]],
     ['Сад', 11, ['горшок для цветов', 'горшок для цветка', 'кашпо для цветов']],
     ['Красота и уход', 11, ['масло для волос', 'масло волос', 'крем для лица', 'крем для рук']],
     ['Бытовая техника', 11, ['чайник электрический']],
-    ['Хобби и творчество', 11, ['пластилин для лепки', 'пластилин для творчества', 'мыло для лепки']]
+    ['Хобби и творчество', 11, ['пластилин для лепки', 'пластилин для творчества', 'мыло для лепки']],
+    ['Аксессуары', 12, ['чехол для электронной книги', 'обложка для электронной книги', 'чехол для ридера']],
+    ['Цифровые покупки', 13, ['электронный ключ игры', 'ключ игры steam', 'steam для пк']],
+    ['Канцтовары', 12, ['шариковая ручка', 'шариковые ручки', 'шариковых ручек']]
   ];
   const negativeContextRules = [
     ['Продукты', 'кофейный столик', 12],
     ['Хобби и творчество', 'мозаика для ванной', 12],
     ['Игрушки', 'пластилин для лепки', 12],
-    ['Красота и уход', 'крем для обуви', 12]
+    ['Красота и уход', 'крем для обуви', 12],
+    ['Красота и уход', 'крем сливочный', 12],
+    ['Красота и уход', 'сливочный крем', 12],
+    ['Красота и уход', 'крем для торта', 12],
+    ['Красота и уход', 'кондитерский крем', 12],
+    ['Книги', 'чехол для электронной книги', 12],
+    ['Книги', 'обложка для электронной книги', 12],
+    ['Электроника', 'электронный ключ игры', 13],
+    ['Электроника', 'ключ игры steam', 13]
   ];
+  const reviewOnlyTokens = new Set([
+    'батарея', 'весы', 'вилка', 'игрушк', 'кабель', 'карта', 'кольцо', 'коробка',
+    'лампа', 'маска', 'масло', 'мяч', 'набор', 'нож', 'органайзер', 'паста',
+    'папка', 'ручк', 'салфетки', 'столик', 'топ', 'триммер', 'фильтр', 'чехол', 'щетка'
+  ]);
   let remoteRules = [];
+  let compiledRuleEntries = null;
+  let compiledNegativeEntries = null;
+  const classificationCache = new Map();
+  const maxClassificationCache = 4000;
 
   function normalize(text) {
     return String(text || '')
@@ -383,14 +410,17 @@
       .trim();
   }
 
-  function matchToken(words, padded, token) {
-    const normalized = normalize(token);
+  function matchNormalizedToken(words, padded, normalized) {
     if (!normalized) return null;
     if (normalized.includes(' ')) {
       return padded.includes(` ${normalized} `) ? 'phrase' : null;
     }
     if (words.some((word) => word === normalized)) return 'exact';
     return normalized.length >= 5 && words.some((word) => word.startsWith(normalized)) ? 'stem' : null;
+  }
+
+  function matchToken(words, padded, token) {
+    return matchNormalizedToken(words, padded, normalize(token));
   }
 
   function titleFrom(input) {
@@ -409,6 +439,7 @@
   }
 
   function ruleEntries() {
+    if (compiledRuleEntries) return compiledRuleEntries;
     // A local pack is allowed to refine the embedded lexicon. Identical
     // category/token pairs are alternatives, not two independent signals: use
     // the strongest source once and retain it in the explanation.
@@ -419,7 +450,7 @@
           const token = normalize(rawToken);
           if (!category || !token) continue;
           const key = `${category}\u0000${token}`;
-          const entry = { category, weight, token, source };
+          const entry = { category, weight, token, source, score: scoreFor(weight, token) };
           const previous = unique.get(key);
           if (!previous || entry.weight > previous.weight || (entry.weight === previous.weight && source === 'local')) {
             unique.set(key, entry);
@@ -427,7 +458,18 @@
         }
       }
     }
-    return [...unique.values()];
+    compiledRuleEntries = [...unique.values()];
+    return compiledRuleEntries;
+  }
+
+  function negativeEntries() {
+    if (compiledNegativeEntries) return compiledNegativeEntries;
+    compiledNegativeEntries = negativeContextRules.map(([category, token, penalty]) => ({
+      category,
+      token: normalize(token),
+      penalty
+    }));
+    return compiledNegativeEntries;
   }
 
   function confidenceFor(top, second, accepted) {
@@ -449,13 +491,16 @@
     };
     if (!normalized || /^(ozon pdf не разобран|wildberries receipt)/.test(normalized)) return emptyResult;
 
+    const cached = classificationCache.get(normalized);
+    if (cached) return cached;
+
     const words = normalized.split(' ');
     const padded = ` ${normalized} `;
     const byCategory = new Map();
     for (const entry of ruleEntries()) {
-      const kind = matchToken(words, padded, entry.token);
+      const kind = matchNormalizedToken(words, padded, entry.token);
       if (!kind) continue;
-      const evidence = { token: entry.token, kind, source: entry.source, score: scoreFor(entry.weight, entry.token) };
+      const evidence = { token: entry.token, kind, source: entry.source, score: entry.score };
       const candidate = byCategory.get(entry.category) || { category: entry.category, score: 0, evidence: [] };
       candidate.score += evidence.score;
       candidate.evidence.push(evidence);
@@ -464,12 +509,12 @@
 
     // Negative context never creates a category by itself. It only removes a
     // misleading generic signal (for example, food's “кофейный” in a table).
-    for (const [category, token, penalty] of negativeContextRules) {
-      if (!matchToken(words, padded, token)) continue;
-      const candidate = byCategory.get(category);
+    for (const entry of negativeEntries()) {
+      if (!matchNormalizedToken(words, padded, entry.token)) continue;
+      const candidate = byCategory.get(entry.category);
       if (!candidate) continue;
-      candidate.score -= penalty;
-      candidate.evidence.push({ token: normalize(token), kind: 'negative', source: 'context', score: -penalty });
+      candidate.score -= entry.penalty;
+      candidate.evidence.push({ token: entry.token, kind: 'negative', source: 'context', score: -entry.penalty });
     }
 
     const candidates = [...byCategory.values()]
@@ -481,12 +526,14 @@
       .sort((a, b) => b.score - a.score || a.category.localeCompare(b.category));
 
     if (!candidates.length && /\s\|\s[\p{L}][\p{L}\s.-]{2,}$/u.test(title)) {
-      return {
+      const result = {
         category: 'Книги', suggestedCategory: 'Книги', confidence: 0.62,
         evidence: [{ token: '| автор', kind: 'phrase', source: 'fallback', score: 7 }],
         candidates: [{ category: 'Книги', score: 7, evidence: [{ token: '| автор', kind: 'phrase', source: 'fallback', score: 7 }] }],
         needsReview: true, method: 'lexicon-v2'
       };
+      cacheClassification(normalized, result);
+      return result;
     }
 
     const [top, second] = candidates;
@@ -496,20 +543,36 @@
     const accepted = top.score >= threshold && (!second || margin >= 3);
     const confidence = confidenceFor(top, second, accepted);
     const positiveEvidence = top.evidence.filter((item) => item.score > 0);
+    const explicitLocalRule = positiveEvidence.length === 1 && positiveEvidence[0].source === 'local';
     const weakSingleWord = positiveEvidence.length === 1
       && positiveEvidence[0].kind !== 'phrase'
-      && top.score < 12;
-    return {
-      category: accepted ? top.category : 'unknown',
+      && top.score < 12
+      && reviewOnlyTokens.has(positiveEvidence[0].token)
+      && !explicitLocalRule;
+    const confidentlyAccepted = accepted
+      && confidence >= 0.64
+      && !weakSingleWord
+      && !(second && margin < 7);
+    const result = {
+      category: confidentlyAccepted ? top.category : 'unknown',
       suggestedCategory: top.category,
       confidence,
       evidence: top.evidence,
       candidates: candidates.slice(0, 5),
       // A displayed category with weak support is still useful, but should be
       // surfaced to the user as a suggestion instead of silently trusted.
-      needsReview: !accepted || confidence < 0.64 || weakSingleWord || Boolean(second && margin < 7),
+      needsReview: !confidentlyAccepted,
       method: 'lexicon-v2'
     };
+    cacheClassification(normalized, result);
+    return result;
+  }
+
+  function cacheClassification(key, value) {
+    classificationCache.set(key, value);
+    if (classificationCache.size > maxClassificationCache) {
+      classificationCache.delete(classificationCache.keys().next().value);
+    }
   }
 
   function guessSpendCategory(title) {
@@ -529,6 +592,8 @@
     remoteRules = (Array.isArray(payload?.rules) ? payload.rules : [])
       .map(normalizeRemoteRule)
       .filter(Boolean);
+    compiledRuleEntries = null;
+    classificationCache.clear();
     return remoteRules.length;
   }
 
