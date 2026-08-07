@@ -1,0 +1,27 @@
+[
+  {
+    "name": "complete purchase",
+    "text": "КАССОВЫЙ ЧЕК\n02.06.2026 11:50\nПОЛНЫЙ РАСЧЕТ\n1. Чай зелёный\n≡ 699,00\nИТОГ ≡ 699,00",
+    "expected": { "rows": 1, "amount": "699.00", "type": "purchase", "quality": "complete" }
+  },
+  {
+    "name": "refund",
+    "text": "КАССОВЫЙ ЧЕК ВОЗВРАТ ПРИХОДА\n03.06.2026 11:50\n1. Чай зелёный\n≡ 699,00\nИТОГ ≡ 699,00",
+    "expected": { "rows": 1, "amount": "-699.00", "type": "refund", "quality": "complete" }
+  },
+  {
+    "name": "mismatched item sum uses receipt total",
+    "text": "КАССОВЫЙ ЧЕК\n04.06.2026 11:50\n1. Чай зелёный\n≡ 100,00\nИТОГ ≡ 300,00",
+    "expected": { "rows": 1, "amount": "300.00", "type": "purchase", "quality": "fallback" }
+  },
+  {
+    "name": "missing total is unverified",
+    "text": "КАССОВЫЙ ЧЕК\n04.06.2026 11:50\n1. Чай зелёный\n≡ 100,00",
+    "expected": { "rows": 1, "amount": "100.00", "type": "purchase", "quality": "unverified" }
+  },
+  {
+    "name": "no financial rows",
+    "text": "страница чека без товарных строк и итога",
+    "expected": { "rows": 0 }
+  }
+]

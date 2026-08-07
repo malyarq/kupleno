@@ -65,7 +65,21 @@ for (const [size, file] of Object.entries(manifest.icons)) {
   assert.equal(png.readUInt32BE(20), Number(size));
 }
 
-const scripts = ['categories.js', 'csv.js', 'update.js', 'preferences.js', 'intelligence.js', 'lifecycle.js', 'storage.js', 'privacy.js', 'app.js'];
+const scripts = [
+  'categories.js',
+  'analytics-core.js',
+  'analytics-utils.js',
+  'report-quality.js',
+  'source-health.js',
+  'csv.js',
+  'update.js',
+  'preferences.js',
+  'intelligence.js',
+  'lifecycle.js',
+  'storage.js',
+  'privacy.js',
+  'app.js'
+];
 const scriptOrder = scripts
   .map((script) => html.indexOf(`src="${script}"`));
 assert.ok(scriptOrder.every((index) => index >= 0));

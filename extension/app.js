@@ -16,12 +16,17 @@ const csvColumns = [
 ];
 
 const els = {
+  skipLink: document.getElementById('skipLink'),
   onboardingPanel: document.getElementById('onboardingPanel'),
   onboardingDemo: document.getElementById('onboardingDemo'),
   onboardingStart: document.getElementById('onboardingStart'),
+  onboardingUpload: document.getElementById('onboardingUpload'),
   sourceOzon: document.getElementById('sourceOzon'),
+  sourceOzonState: document.getElementById('sourceOzonState'),
   sourceWb: document.getElementById('sourceWb'),
+  sourceWbState: document.getElementById('sourceWbState'),
   sourceYandex: document.getElementById('sourceYandex'),
+  sourceYandexState: document.getElementById('sourceYandexState'),
   collect: document.getElementById('collect'),
   themeToggle: document.getElementById('themeToggle'),
   runSummary: document.getElementById('runSummary'),
@@ -81,11 +86,18 @@ const els = {
   analyticsPurchases: document.getElementById('analyticsPurchases'),
   analyticsPurchasesLabel: document.getElementById('analyticsPurchasesLabel'),
   analyticsRefunds: document.getElementById('analyticsRefunds'),
+  toggleAnalyticsDetails: document.getElementById('toggleAnalyticsDetails'),
   reportTrust: document.getElementById('reportTrust'),
   reportTrustBadge: document.getElementById('reportTrustBadge'),
   reportTrustTitle: document.getElementById('reportTrustTitle'),
   reportTrustText: document.getElementById('reportTrustText'),
+  reportTrustSources: document.getElementById('reportTrustSources'),
+  openCollectionAudit: document.getElementById('openCollectionAudit'),
   openCategoryReview: document.getElementById('openCategoryReview'),
+  moneyRecovery: document.getElementById('moneyRecovery'),
+  moneyRecoveryTitle: document.getElementById('moneyRecoveryTitle'),
+  moneyRecoveryText: document.getElementById('moneyRecoveryText'),
+  openMoneyRecovery: document.getElementById('openMoneyRecovery'),
   actionSummary: document.getElementById('actionSummary'),
   actionInsightList: document.getElementById('actionInsightList'),
   chartRange: document.getElementById('chartRange'),
@@ -95,6 +107,7 @@ const els = {
   sourceBreakdown: document.getElementById('sourceBreakdown'),
   categoryBreakdown: document.getElementById('categoryBreakdown'),
   categorySummary: document.getElementById('categorySummary'),
+  categoryLevel: document.getElementById('categoryLevel'),
   categoryChartType: document.getElementById('categoryChartType'),
   copyReport: document.getElementById('copyReport'),
   spendReport: document.getElementById('spendReport'),
@@ -219,6 +232,7 @@ const maxRenderedDetailRows = 500;
 
 const logStorageKey = 'markettrat-log-v1';
 const themeStorageKey = 'markettrat-theme-v1';
+const categoryLevelStorageKey = 'markettrat-category-level-v1';
 const categoryChartTypeStorageKey = 'markettrat-category-chart-v1';
 const periodChartModeStorageKey = 'markettrat-period-chart-mode-v1';
 const lastRunStorageKey = 'markettrat-last-run-v1';
@@ -233,6 +247,29 @@ const preferences = globalThis.MarketTratPreferences;
 const intelligence = globalThis.MarketTratIntelligence;
 const lifecycle = globalThis.MarketTratLifecycle;
 const privacy = globalThis.MarketTratPrivacy;
+const analyticsCore = globalThis.MarketTratAnalyticsCore;
+const analyticsUtils = globalThis.MarketTratAnalyticsUtils;
+const reportQuality = globalThis.MarketTratReportQuality;
+const sourceHealth = globalThis.MarketTratSourceHealth;
+const {
+  formatRub,
+  pluralRu,
+  formatCount,
+  compactAmount,
+  parseRowDate,
+  dateInputValue,
+  inputDate,
+  localInputDate,
+  isoWeekKey,
+  periodKey,
+  quickPeriodRange,
+  periodBounds,
+  isDateInRange,
+  averageForPeriods,
+  averagePeriodLabel,
+  previousRange,
+  compareText
+} = analyticsUtils;
 const dataSyncChannel = typeof BroadcastChannel === 'function'
   ? new BroadcastChannel('markettrat-data-sync-v1')
   : null;
@@ -266,6 +303,12 @@ const collectSourceInputs = [
   ['wildberries', els.sourceWb],
   ['yandex', els.sourceYandex]
 ];
+const collectSourceStateElements = {
+  ozon: els.sourceOzonState,
+  wildberries: els.sourceWbState,
+  yandex: els.sourceYandexState
+};
+let sourcePermissionStates = { ozon: false, wildberries: false, yandex: false };
 const categoryLabels = {
   unknown: 'Без категории'
 };
@@ -288,10 +331,12 @@ const categoryColors = {
   'Одежда': '#9c6b3d',
   'Обувь': '#4f46e5',
   'Подписки': '#c026d3',
+  'Цифровые покупки': '#c026d3',
   'Продукты': '#6cc24a',
   'Ремонт': '#f6c000',
   'Сад': '#16a34a',
   'Спорт': '#ef4444',
+  'Табак и никотин': '#7c6f64',
   'Хобби и творчество': '#b832e6',
   'Украшения': '#db2777',
   'Фото и оптика': '#0891b2',
@@ -301,10 +346,6 @@ const categoryColors = {
   unknown: '#a8b0bf'
 };
 const svgNamespace = 'http://www.w3.org/2000/svg';
-const amountFormatter = new Intl.NumberFormat('ru-RU', {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2
-});
 let sourceRows = [];
 let rows = [];
 let logLines = loadStoredLog();
@@ -783,10 +824,31 @@ function storeLastRun() {
   return persistSnapshot(lastRunKind || 'Обновление');
 }
 
+function legacyCategoryRequiresRefresh(row, category) {
+  if (Object.prototype.hasOwnProperty.call(row || {}, 'base_category') || row?.category_origin) return false;
+  const title = normalizeKeyText(`${row?.title || ''} ${row?.raw_title || ''}`);
+  if (!title) return false;
+  if (category === 'Продукты') {
+    return /(?:^|\s)(?:pod|вейп\p{L}*|vaporesso|xros|сигарет\p{L}*|табак\p{L}*)(?:\s|$)/u.test(title)
+      || /(скотч|клейкая лента|упаковочная бумага|подарочная бумага)/u.test(title);
+  }
+  if (category === 'Красота и уход') {
+    return /(крем сливочн|сливочный крем|крем для торта|кондитерский крем)/u.test(title);
+  }
+  if (category === 'Книги') {
+    return /(чехол|обложка).*(электронн.*книг|ридер)/u.test(title);
+  }
+  if (category === 'Электроника') {
+    return /(ключ активации|электронный ключ|windows 11|steam)/u.test(title);
+  }
+  return false;
+}
+
 function prepareSourceRow(row) {
-  const baseCategory = Object.prototype.hasOwnProperty.call(row || {}, 'base_category')
+  let baseCategory = Object.prototype.hasOwnProperty.call(row || {}, 'base_category')
     ? String(row.base_category || '').trim()
     : String(row?.category || '').trim();
+  if (legacyCategoryRequiresRefresh(row, baseCategory)) baseCategory = '';
   const normalized = withCategory(withOperation({ ...row, category: baseCategory }));
   return { ...normalized, base_category: baseCategory };
 }
@@ -1002,6 +1064,9 @@ function resetLocalDataAfterClear(epoch, remote = false) {
   renderSourceStatuses();
   els.onboardingPanel.hidden = false;
   document.body.classList.add('first-run');
+  for (const [, input] of collectSourceInputs) input.checked = false;
+  updateProgressFill();
+  renderSourceConnectionStates();
   els.collect.disabled = false;
   els.uploadCsv.disabled = false;
   setMutationControlsDisabled(false);
@@ -1045,17 +1110,20 @@ function applyTheme(theme, persist = true) {
 }
 
 function setActiveView(view) {
+  const hasMatchingTab = els.tabButtons.some((button) => button.dataset.view === view);
   for (const button of els.tabButtons) {
     const active = button.dataset.view === view;
     button.classList.toggle('active', active);
-    if (active) button.setAttribute('aria-current', 'page');
-    else button.removeAttribute('aria-current');
+    button.setAttribute('aria-selected', String(active));
+    button.tabIndex = active || (!hasMatchingTab && button.dataset.view === 'data') ? 0 : -1;
   }
   for (const panel of els.viewPanels) {
     const active = panel.id === `${view}View`;
     panel.classList.toggle('active', active);
     panel.setAttribute('aria-hidden', String(!active));
+    panel.toggleAttribute('inert', !active);
   }
+  if (document.getElementById(`${view}View`)) els.skipLink.href = `#${view}View`;
   if (view === 'control') renderControl();
 }
 
@@ -1135,6 +1203,42 @@ function renderSourceStatuses() {
     }
     els.sourceStatuses.appendChild(item);
   }
+  renderSourceConnectionStates();
+}
+
+function renderSourceConnectionStates() {
+  for (const [source, input] of collectSourceInputs) {
+    const view = sourceHealth.connectionState({
+      selected: input.checked,
+      permissionGranted: sourcePermissionStates[source] === true,
+      status: collectStatuses[source] || null
+    });
+    const state = collectSourceStateElements[source];
+    const choice = input.closest('.source-choice');
+    if (state) state.textContent = view.label;
+    if (choice) choice.dataset.state = view.state;
+  }
+}
+
+async function refreshSourcePermissionStates() {
+  if (!api?.permissions?.contains) {
+    renderSourceConnectionStates();
+    return;
+  }
+  const next = {};
+  for (const [source] of collectSourceInputs) {
+    const request = {
+      origins: sourcePermissionOrigins[source] || [],
+      ...(source === 'wildberries' ? { permissions: ['cookies'] } : {})
+    };
+    try {
+      next[source] = await callChrome(api.permissions.contains, request) === true;
+    } catch {
+      next[source] = false;
+    }
+  }
+  sourcePermissionStates = next;
+  renderSourceConnectionStates();
 }
 
 function setCollectStatuses(sources, state, label) {
@@ -1236,7 +1340,6 @@ function selectedCollectSources() {
 function setMutationControlsDisabled(disabled) {
   const effectiveDisabled = Boolean(disabled || storageConflict || persistencePendingCount > 0);
   const controls = [
-    els.onboardingStart,
     els.homeGuidePrimary,
     els.homeGuideSecondary,
     els.overallBudgetAmount,
@@ -1280,6 +1383,9 @@ function setMutationControlsDisabled(disabled) {
   for (const control of controls) {
     if (control) control.disabled = effectiveDisabled;
   }
+  if (els.onboardingStart) {
+    els.onboardingStart.disabled = effectiveDisabled || selectedCollectSources().length === 0;
+  }
   for (const control of document.querySelectorAll(
     '#detailRows .detail-edit, #detailRows .category-pill, #budgetBreakdown button, #refundClaims button, #dataHistoryList button, #categoryRuleList button, #operationOverridesList button, #controlView button, #controlView select'
   )) {
@@ -1321,6 +1427,7 @@ async function ensureSourcePermissions(sources) {
   if (!granted) {
     throw new Error('не предоставлен доступ к выбранным маркетплейсам. Повторите сбор и разрешите доступ в диалоге браузера');
   }
+  await refreshSourcePermissionStates();
 }
 
 async function revokeSourcePermissions() {
@@ -1330,6 +1437,7 @@ async function revokeSourcePermissions() {
     origins: [...new Set(Object.values(sourcePermissionOrigins).flat())]
   });
   if (!removed) throw new Error('браузер не подтвердил отзыв доступов');
+  await refreshSourcePermissionStates();
   setStatus('Доступ к маркетплейсам отозван. При следующем сборе браузер запросит его снова.');
   appendLog('Опциональные доступы к маркетплейсам отозваны.');
 }
@@ -1525,50 +1633,7 @@ function restoreSourceStatusesFromReport() {
 }
 
 function sourceDiagnostic(source, stats = {}) {
-  const item = stats[source] || {};
-  const receipts = Number(item.receipts) || 0;
-  const parsed = Number(item.parsedReceipts) || 0;
-  const itemRows = Number(item.itemRows) || 0;
-  const failedReceipts = Number(item.failedReceipts) || Math.max(0, receipts - parsed);
-  const dropped = ['duplicateRowsDropped', 'prepaymentRowsDropped', 'operationalRowsDropped', 'adjustmentRowsDropped']
-    .reduce((sum, key) => sum + (Number(item[key]) || 0), 0);
-
-  if (source === 'yandex') {
-    const orders = Number(item.orders) || 0;
-    const skipped = failedReceipts + (Number(item.noReceiptOrders) || 0) + (Number(item.failedOrders) || 0);
-    const unverifiedReceipts = Number(item.unverifiedReceipts) || 0;
-    const limitReached = item.limitReached === true;
-    const paginationIncomplete = item.paginationIncomplete === true;
-    if (!orders && !receipts && !itemRows && !skipped) return null;
-    return {
-      label: receipts ? `${parsed}/${receipts} чеков` : `${orders} заказов`,
-      title: `Яндекс Маркет: найдено заказов ${orders}, чеков ${receipts}, распознано ${parsed}, без сверки итога ${unverifiedReceipts}, пропущено ${skipped}, строк ${itemRows}${limitReached ? ', достигнут лимит страниц' : ''}${paginationIncomplete ? ', список заказов неполный' : ''}.`,
-      warning: skipped > 0 || unverifiedReceipts > 0 || limitReached || paginationIncomplete
-    };
-  }
-
-  if (source === 'wildberries') {
-    if (!receipts && !itemRows) return null;
-    const fallbackReceipts = Number(item.fallbackReceipts) || 0;
-    const unverifiedReceipts = Number(item.unverifiedReceipts) || 0;
-    return {
-      label: `${parsed}/${receipts} чеков, ${itemRows} строк`,
-      title: `Wildberries: найдено чеков ${receipts}, распознано ${parsed}, без состава ${fallbackReceipts}, без сверки итога ${unverifiedReceipts}, пропущено ${failedReceipts}, строк ${itemRows}.`,
-      warning: failedReceipts > 0 || fallbackReceipts > 0 || unverifiedReceipts > 0
-    };
-  }
-
-  const fallbackReceipts = Number(item.fallbackReceipts) || 0;
-  const unverifiedReceipts = Number(item.unverifiedReceipts) || 0;
-  const limitReached = item.limitReached === true;
-  const paginationIncomplete = item.paginationIncomplete === true;
-  if (!receipts && !itemRows && !failedReceipts && !fallbackReceipts && !unverifiedReceipts && !dropped) return null;
-  const sourceName = sourceLabels[source] || source;
-  return {
-    label: receipts ? `${parsed}/${receipts} чеков` : `${itemRows} строк`,
-    title: `${sourceName}: найдено чеков ${receipts}, распознано ${parsed}, без состава ${fallbackReceipts}, без сверки итога ${unverifiedReceipts}, пропущено ${failedReceipts}, строк ${itemRows}${dropped ? `, отброшено строк ${dropped}` : ''}${limitReached ? ', достигнут лимит страниц' : ''}${paginationIncomplete ? ', список чеков неполный' : ''}.`,
-    warning: failedReceipts > 0 || fallbackReceipts > 0 || unverifiedReceipts > 0 || limitReached || paginationIncomplete
-  };
+  return sourceHealth.diagnostic(source, stats, sourceLabels);
 }
 
 function renderQualitySummary(rawRecords = [], stats = {}, cleaningStats = {}, warnings = []) {
@@ -1772,7 +1837,9 @@ function withOperation(row) {
 
 function withCategory(row) {
   const category = String(row.category || '').trim();
-  const normalized = category === 'Пакеты и упаковка' ? 'Продукты' : category;
+  const normalized = category === 'Пакеты и упаковка'
+    ? 'Дом'
+    : (category === 'Подписки' ? 'Цифровые покупки' : category);
   if (normalized && normalized.toLowerCase() !== 'unknown') {
     return {
       ...row,
@@ -1820,7 +1887,12 @@ function categoryName(category) {
 }
 
 function categoryColor(category) {
+  if (String(category || '').startsWith('macro:')) return analyticsCore.macroColor(category);
   return categoryColors[category] || categoryColors.unknown;
+}
+
+function loadCategoryLevel() {
+  return localStorage.getItem(categoryLevelStorageKey) === 'detail' ? 'detail' : 'macro';
 }
 
 function loadCategoryChartType() {
@@ -1888,57 +1960,6 @@ function logParserStats(stats = {}) {
   }
 }
 
-function formatRub(value) {
-  return `${amountFormatter.format(value || 0)} ₽`;
-}
-
-function pluralRu(count, forms) {
-  const value = Math.abs(Number(count) || 0);
-  const mod100 = value % 100;
-  const mod10 = value % 10;
-  if (mod100 >= 11 && mod100 <= 14) return forms[2];
-  if (mod10 === 1) return forms[0];
-  if (mod10 >= 2 && mod10 <= 4) return forms[1];
-  return forms[2];
-}
-
-function formatCount(count, forms) {
-  return `${count} ${pluralRu(count, forms)}`;
-}
-
-function compactAmount(value) {
-  const abs = Math.abs(value || 0);
-  if (abs >= 1000000) return `${amountFormatter.format(value / 1000000)}M`;
-  if (abs >= 1000) return `${amountFormatter.format(value / 1000)}K`;
-  return amountFormatter.format(value);
-}
-
-function parseRowDate(value) {
-  if (typeof globalThis.isValidSpendDate === 'function' && !globalThis.isValidSpendDate(value)) return null;
-  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) return null;
-  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-}
-
-function isoWeekKey(date) {
-  const shifted = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  const day = shifted.getUTCDay() || 7;
-  shifted.setUTCDate(shifted.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(shifted.getUTCFullYear(), 0, 1));
-  const week = Math.ceil((((shifted - yearStart) / 86400000) + 1) / 7);
-  return `${shifted.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
-}
-
-function periodKey(date, group) {
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(date.getUTCDate()).padStart(2, '0');
-  if (group === 'day') return `${year}-${month}-${day}`;
-  if (group === 'week') return isoWeekKey(date);
-  if (group === 'year') return String(year);
-  return `${year}-${month}`;
-}
-
 function selectedAnalyticsSources() {
   const sources = new Set();
   if (els.analyticsOzon.checked) sources.add('ozon');
@@ -1999,12 +2020,6 @@ function renderActiveFilters(sources) {
     ? `${els.dateFrom.value || 'начало'} - ${els.dateTo.value || 'сегодня'}`
     : 'весь период';
   const sourceNames = selectedAnalyticsSourceNames(sources);
-  const addLabel = (text) => {
-    const item = document.createElement('span');
-    item.className = 'filter-token';
-    item.textContent = text;
-    els.activeFilters.appendChild(item);
-  };
   const addChip = (text, clear) => {
     const chip = document.createElement('button');
     chip.type = 'button';
@@ -2018,30 +2033,32 @@ function renderActiveFilters(sources) {
     els.activeFilters.appendChild(chip);
   };
 
-  addLabel(`Период: ${period}`);
-  if (period !== 'весь период') addChip('сбросить период', () => applyQuickPeriod('all'));
+  if (period !== 'весь период') addChip(`Период: ${period}`, () => applyQuickPeriod('all'));
   const profileName = appSettings.activeProfile === 'all'
     ? 'все'
     : (appSettings.profiles.find((profile) => profile.id === appSettings.activeProfile)?.name || appSettings.activeProfile);
-  addLabel(`Профиль: ${profileName}`);
   if (appSettings.activeProfile !== 'all') {
-    addChip('все профили', () => {
+    addChip(`Покупки: ${profileName}`, () => {
       appSettings.activeProfile = 'all';
       renderProfiles();
       updateDateInputBounds();
       updateAnalytics();
     });
   }
-  addLabel(`Источники: ${sourceNames.length ? sourceNames.join(', ') : 'нет'}`);
   if (sourceNames.length !== 3) {
-    addChip('все источники', () => {
+    addChip(`Магазины: ${sourceNames.length ? sourceNames.join(', ') : 'нет'}`, () => {
       els.analyticsOzon.checked = true;
       els.analyticsWb.checked = true;
       els.analyticsYandex.checked = true;
       updateAnalytics();
     });
   }
-  addLabel(`Группировка: ${els.periodGroup.options[els.periodGroup.selectedIndex]?.textContent || els.periodGroup.value}`);
+  if (els.periodGroup.value !== 'month') {
+    addChip(`Показывать по: ${els.periodGroup.options[els.periodGroup.selectedIndex]?.textContent || els.periodGroup.value}`, () => {
+      els.periodGroup.value = 'month';
+      updateAnalytics();
+    });
+  }
   const detail = detailFilterName();
   if (detail) {
     addChip(detail, () => {
@@ -2062,6 +2079,7 @@ function renderActiveFilters(sources) {
 
   const hasFilters = period !== 'весь период'
     || sourceNames.length !== 3
+    || appSettings.activeProfile !== 'all'
     || els.periodGroup.value !== 'month'
     || detailFilter
     || detailOperation !== 'all'
@@ -2074,28 +2092,7 @@ function renderActiveFilters(sources) {
     reset.addEventListener('click', resetAnalyticsFilters);
     els.activeFilters.appendChild(reset);
   }
-}
-
-function dateInputValue(value) {
-  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
-  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-}
-
-function inputDate(date) {
-  return [
-    date.getUTCFullYear(),
-    String(date.getUTCMonth() + 1).padStart(2, '0'),
-    String(date.getUTCDate()).padStart(2, '0')
-  ].join('-');
-}
-
-function localInputDate(date) {
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, '0'),
-    String(date.getDate()).padStart(2, '0')
-  ].join('-');
+  els.activeFilters.hidden = els.activeFilters.childElementCount === 0;
 }
 
 function setDateRange(from, to) {
@@ -2106,82 +2103,12 @@ function setDateRange(from, to) {
   updateAnalytics();
 }
 
-function quickPeriodRange(period, today = new Date()) {
-  const year = today.getFullYear();
-  const month = today.getMonth();
-  const day = today.getDate();
-  const rollingDays = {
-    'last-7-days': 7,
-    'last-30-days': 30,
-    'last-90-days': 90
-  }[period];
-
-  if (rollingDays) {
-    return {
-      from: localInputDate(new Date(year, month, day - rollingDays + 1)),
-      to: localInputDate(new Date(year, month, day))
-    };
-  }
-  if (period === 'this-month') {
-    return {
-      from: localInputDate(new Date(year, month, 1)),
-      to: localInputDate(new Date(year, month + 1, 0))
-    };
-  }
-  if (period === 'prev-month') {
-    return {
-      from: localInputDate(new Date(year, month - 1, 1)),
-      to: localInputDate(new Date(year, month, 0))
-    };
-  }
-  if (period === 'this-quarter' || period === 'prev-quarter') {
-    const quarterStart = Math.floor(month / 3) * 3;
-    const startMonth = period === 'this-quarter' ? quarterStart : quarterStart - 3;
-    return {
-      from: localInputDate(new Date(year, startMonth, 1)),
-      to: localInputDate(new Date(year, startMonth + 3, 0))
-    };
-  }
-  if (period === 'this-year') return { from: `${year}-01-01`, to: `${year}-12-31` };
-  if (period === 'prev-year') return { from: `${year - 1}-01-01`, to: `${year - 1}-12-31` };
-  return { from: '', to: '' };
-}
-
 function applyQuickPeriod(period) {
   selectedPeriodKey = '';
   resetDetailPaging();
   if (els.quickPeriodSelect.value !== period) els.quickPeriodSelect.value = period || 'all';
   const range = quickPeriodRange(period);
   setDateRange(range.from, range.to);
-}
-
-function periodBounds(key, group) {
-  if (group === 'day') return { from: key, to: key };
-  if (group === 'month') {
-    const match = String(key).match(/^(\d{4})-(\d{2})$/);
-    if (!match) return null;
-    const year = Number(match[1]);
-    const month = Number(match[2]) - 1;
-    return {
-      from: inputDate(new Date(Date.UTC(year, month, 1))),
-      to: inputDate(new Date(Date.UTC(year, month + 1, 0)))
-    };
-  }
-  if (group === 'year') return { from: `${key}-01-01`, to: `${key}-12-31` };
-  if (group === 'week') {
-    const match = String(key).match(/^(\d{4})-W(\d{2})$/);
-    if (!match) return null;
-    const year = Number(match[1]);
-    const week = Number(match[2]);
-    const jan4 = new Date(Date.UTC(year, 0, 4));
-    const jan4Day = jan4.getUTCDay() || 7;
-    const monday = new Date(jan4);
-    monday.setUTCDate(jan4.getUTCDate() - jan4Day + 1 + (week - 1) * 7);
-    const sunday = new Date(monday);
-    sunday.setUTCDate(monday.getUTCDate() + 6);
-    return { from: inputDate(monday), to: inputDate(sunday) };
-  }
-  return null;
 }
 
 function selectChartPeriod(key) {
@@ -2231,12 +2158,6 @@ function csvExportSuffix() {
   return range.from !== null || range.to !== null ? `${from}_${to}` : localInputDate(new Date());
 }
 
-function isDateInRange(date, range) {
-  const time = date.getTime();
-  return (range.from === null || time >= range.from)
-    && (range.to === null || time <= range.to);
-}
-
 function syncDateInputs() {
   if (els.dateFrom.value && els.dateTo.value && els.dateFrom.value > els.dateTo.value) {
     els.dateTo.value = els.dateFrom.value;
@@ -2265,19 +2186,6 @@ function updateDateInputBounds() {
   syncDateInputs();
 }
 
-function averageForPeriods(total, periods) {
-  return periods.length ? total / periods.length : 0;
-}
-
-function averagePeriodLabel(group) {
-  return ({
-    day: 'в среднем за день',
-    week: 'в среднем за неделю',
-    month: 'в среднем за месяц',
-    year: 'в среднем за год'
-  })[group] || 'в среднем';
-}
-
 function totalForRange(sources, range, group) {
   return rows.reduce((sum, row) => {
     if (!visibleRow(row)) return sum;
@@ -2298,25 +2206,6 @@ function recordsForRange(sources, range, group, ignoreCategoryFilter = false) {
       && isDateInRange(date, range)
       && matchesAnalyticsFilter(row, group, ignoreCategoryFilter);
   });
-}
-
-function previousRange(range) {
-  if (range.from === null || range.to === null) return null;
-  const dayMs = 86400000;
-  const days = Math.max(1, Math.round((range.to - range.from) / dayMs) + 1);
-  const to = range.from - dayMs;
-  return {
-    from: to - ((days - 1) * dayMs),
-    to
-  };
-}
-
-function compareText(current, previous) {
-  if (!previous && !current) return '';
-  if (!previous) return current ? 'новые траты' : '';
-  const percent = Math.round(((current - previous) / Math.abs(previous)) * 100);
-  if (!percent) return 'как в прошлом периоде';
-  return `${percent > 0 ? '+' : ''}${percent}% к прошлому периоду`;
 }
 
 function buildAnalyticsData(sources, group, ignoreCategoryFilter = false) {
@@ -2586,40 +2475,8 @@ function renderSourceBreakdown(records) {
   }
 }
 
-function buildCategoryBreakdown(records, previousRecords = []) {
-  const totals = new Map();
-  const previousTotals = new Map();
-
-  for (const row of records) {
-    const amount = Number(row.amount) || 0;
-    if (!amount) continue;
-    const category = row.category || 'unknown';
-    const current = totals.get(category) || {
-      category,
-      amount: 0,
-      count: 0
-    };
-    current.amount += amount;
-    if (amount > 0) current.count += 1;
-    totals.set(category, current);
-  }
-
-  for (const row of previousRecords) {
-    const amount = Number(row.amount) || 0;
-    if (!amount) continue;
-    const category = row.category || 'unknown';
-    previousTotals.set(category, (previousTotals.get(category) || 0) + amount);
-  }
-
-  const entries = [...totals.values()]
-    .filter((item) => item.amount > 0)
-    .map((item) => ({ ...item, previousAmount: Math.max(0, previousTotals.get(item.category) || 0) }))
-    .sort((a, b) => b.amount - a.amount);
-
-  return {
-    total: entries.reduce((sum, item) => sum + item.amount, 0),
-    entries
-  };
+function buildCategoryBreakdown(records, previousRecords = [], level = 'detail') {
+  return analyticsCore.buildCategoryBreakdown(records, previousRecords, level);
 }
 
 function categoryCompareText(item) {
@@ -2636,9 +2493,17 @@ function categoryMetaText(item, total) {
 }
 
 function scrollDetailsIntoView() {
+  setAnalyticsDetailsExpanded(true);
   requestAnimationFrame(() => {
     els.detailTitle.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
+}
+
+function setAnalyticsDetailsExpanded(expanded) {
+  const value = Boolean(expanded);
+  document.body.classList.toggle('show-analytics-details', value);
+  els.toggleAnalyticsDetails.setAttribute('aria-expanded', String(value));
+  els.toggleAnalyticsDetails.textContent = value ? 'Скрыть подробный отчёт' : 'Показать подробный отчёт';
 }
 
 function setDetailFilter(filter, scroll = false) {
@@ -2850,7 +2715,7 @@ function renderCategoryTiles(entries, total) {
 
 function renderCategoryBreakdown(records, previousRecords = []) {
   clearNode(els.categoryBreakdown);
-  const { entries, total } = buildCategoryBreakdown(records, previousRecords);
+  const { entries, total } = buildCategoryBreakdown(records, previousRecords, els.categoryLevel.value);
 
   els.categorySummary.textContent = entries.length ? formatCount(entries.length, ['категория', 'категории', 'категорий']) : '';
 
@@ -2896,7 +2761,9 @@ function renderCategoryBreakdown(records, previousRecords = []) {
 }
 
 function categoryOptions(records = rows) {
-  const names = new Set(Object.keys(categoryColors).filter((category) => category !== 'other'));
+  const names = new Set(Object.keys(categoryColors).filter((category) => !['other', 'Подписки'].includes(category)));
+  // Keep old user data readable, but do not offer the obsolete automatic
+  // label in a fresh profile. New digital purchases use “Цифровые покупки”.
   for (const row of records) names.add(row.category || 'unknown');
   return [...names].sort((a, b) => categoryName(a).localeCompare(categoryName(b), 'ru'));
 }
@@ -3454,20 +3321,70 @@ function renderReportTrust(records = rows) {
     els.reportTrust.hidden = true;
     return;
   }
-  const sourceWarnings = (lastCollectionReport.warnings || []).length;
-  const needsAttention = quality.reviewRows.length > 0 || sourceWarnings > 0 || lastWarningCount > 0;
+  const audit = reportQuality.auditCollection(records, lastCollectionReport);
+  const needsAttention = audit.state === 'attention' || quality.reviewRows.length > 0 || lastWarningCount > 0;
   els.reportTrust.hidden = false;
+  if (demoMode) {
+    els.reportTrust.classList.remove('warning');
+    els.reportTrust.classList.add('neutral');
+    els.reportTrustBadge.textContent = 'Вымышленный пример';
+    els.reportTrustTitle.textContent = 'Это демонстрация, а не ваши покупки';
+    els.reportTrustText.textContent = `полнота чеков не проверяется · показано ${formatCount(audit.rowCount, ['операция', 'операции', 'операций'])}`;
+    clearNode(els.reportTrustSources);
+    for (const source of audit.sources) {
+      const chip = document.createElement('span');
+      chip.className = 'report-source neutral';
+      chip.textContent = `${sourceLabels[source.source] || source.source} · пример`;
+      els.reportTrustSources.appendChild(chip);
+    }
+    els.openCollectionAudit.hidden = true;
+    els.openCategoryReview.hidden = true;
+    return;
+  }
   els.reportTrust.classList.toggle('warning', needsAttention);
-  els.reportTrustBadge.textContent = needsAttention ? 'Есть следующий шаг' : 'Всё разобрано';
-  els.reportTrustTitle.textContent = quality.reviewRows.length
-    ? `Проверьте ${formatCount(quality.reviewRows.length, ['покупку', 'покупки', 'покупок'])}`
-    : (sourceWarnings ? 'Некоторые чеки прочитаны не полностью' : 'Покупки готовы к просмотру');
+  els.reportTrust.classList.toggle('neutral', audit.state === 'imported');
+  els.reportTrustBadge.textContent = audit.state === 'imported'
+    ? 'Загруженный файл'
+    : (needsAttention ? 'Нужно проверить' : 'Сбор проверен');
+  if (audit.state === 'imported') {
+    els.reportTrustTitle.textContent = 'Полноту загруженной таблицы проверить нельзя';
+  } else if (audit.state === 'attention') {
+    els.reportTrustTitle.textContent = 'Часть чеков собрана не полностью';
+  } else if (quality.reviewRows.length) {
+    els.reportTrustTitle.textContent = `Суммы сверены, проверьте ${formatCount(quality.reviewRows.length, ['покупку', 'покупки', 'покупок'])}`;
+  } else {
+    els.reportTrustTitle.textContent = 'Все найденные чеки прочитаны и сверены';
+  }
+
+  const collectionFacts = audit.state === 'imported'
+    ? [`в таблице ${formatCount(audit.rowCount, ['строка', 'строки', 'строк'])}`]
+    : [
+        audit.receipts ? `сверено чеков ${audit.parsed} из ${audit.receipts}` : '',
+        audit.missingReceipts ? `не прочитано чеков ${audit.missingReceipts}` : '',
+        audit.fallbackAmount ? `${formatRub(audit.fallbackAmount)} учтено только общей суммой` : '',
+        audit.unverifiedAmount ? `${formatRub(audit.unverifiedAmount)} без сверки итога` : ''
+      ];
   els.reportTrustText.textContent = [
-    `автоматически разобрано ${quality.coverage}%`,
+    ...collectionFacts,
+    `категории определены у ${quality.coverage}% покупок`,
     quality.reviewAmount ? `категория примерная у ${formatRub(quality.reviewAmount)}` : '',
-    lastRunAt ? `обновлено ${formatRunTime(lastRunAt)}` : '',
-    sourceWarnings ? `замечаний к сбору ${sourceWarnings}` : ''
+    lastRunAt ? `обновлено ${formatRunTime(lastRunAt)}` : ''
   ].filter(Boolean).join(' · ');
+
+  clearNode(els.reportTrustSources);
+  for (const source of audit.sources) {
+    const chip = document.createElement('span');
+    chip.className = `report-source ${source.attention ? 'warning' : (source.evidence ? 'done' : 'neutral')}`;
+    const range = source.from && source.to
+      ? `${shortDate(source.from)}–${shortDate(source.to)}`
+      : '';
+    const state = source.evidence
+      ? (source.attention ? 'есть пропуски' : 'чеки сверены')
+      : 'из файла';
+    chip.textContent = [sourceLabels[source.source] || source.source, state, range].filter(Boolean).join(' · ');
+    els.reportTrustSources.appendChild(chip);
+  }
+  els.openCollectionAudit.hidden = audit.state === 'imported' || !audit.sources.length;
   els.openCategoryReview.hidden = quality.reviewRows.length === 0;
 }
 
@@ -3645,7 +3562,7 @@ function renderHomeGuide(refundResult = null) {
   homeGuideSecondaryAction = main ? (() => collectOnly('')) : downloadCsv;
 
   clearNode(els.homeNextStepList);
-  const next = tasks.slice(1, 4);
+  const next = tasks.slice(1, 2);
   els.homeNextSteps.hidden = next.length === 0;
   next.forEach((task, index) => {
     const item = document.createElement('li');
@@ -4230,6 +4147,27 @@ function renderRefundClaims() {
   return result;
 }
 
+function renderMoneyRecovery(result) {
+  const outstanding = Number(result?.summary?.outstandingAmount) || 0;
+  if (!result || result.error || outstanding <= 0) {
+    els.moneyRecovery.hidden = true;
+    return;
+  }
+  const openReturns = result.returns.filter((claim) => claim.status !== 'received' && Number(claim.outstandingAmount) > 0);
+  const nearestDueDate = openReturns.map((claim) => claim.dueDate).filter(Boolean).sort()[0] || '';
+  const facts = [
+    `${formatCount(openReturns.length, ['возврат', 'возврата', 'возвратов'])} ещё не получено`,
+    result.summary.overdue ? `просрочено ${result.summary.overdue}` : '',
+    result.summary.partial ? `частично пришло ${result.summary.partial}` : '',
+    result.summary.disputed ? `нужно сопоставить ${result.summary.disputed}` : '',
+    nearestDueDate ? `ближайший срок ${shortDate(nearestDueDate)}` : ''
+  ].filter(Boolean);
+  els.moneyRecovery.hidden = false;
+  els.moneyRecovery.classList.toggle('warning', result.summary.overdue > 0 || result.summary.disputed > 0);
+  els.moneyRecoveryTitle.textContent = `Ожидается ещё ${formatRub(outstanding)}`;
+  els.moneyRecoveryText.textContent = facts.join(' · ');
+}
+
 function applyControlSettingsChange(reason) {
   appSettings = normalizeSettings(appSettings);
   withAutomaticPersistenceSuppressed(() => {
@@ -4705,6 +4643,7 @@ async function importBackup() {
       throw new Error('не удалось сохранить импорт; прежние данные восстановлены');
     }
     if (mutationGeneration !== databaseMutationGeneration) throw new Error('импорт отменён: локальные данные изменились в другой вкладке');
+    if (sourceRows.length) completeOnboarding();
     appendLog(`Резервная копия восстановлена: строк ${sourceRows.length}.`);
   } catch (error) {
     showWarnings([error.message]);
@@ -5276,6 +5215,7 @@ function updateAnalytics() {
   renderActionInsights(records, prevRange ? previousRecords : null);
   renderBudgets();
   const refundResult = renderRefundClaims();
+  renderMoneyRecovery(refundResult);
   renderTopItems(records);
   renderDetails(records, group);
   renderCategoryReview();
@@ -5297,6 +5237,7 @@ function updateResult(records, stats = {}) {
   };
   sourceRows = preferences.withStableRowIds(deduped.rows)
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  if (!sourceRows.length) setAnalyticsDetailsExpanded(false);
   applyAppPreferences();
   document.body.classList.toggle('has-data', sourceRows.length > 0);
   els.collect.textContent = sourceRows.length ? 'Обновить покупки' : 'Добавить покупки';
@@ -5613,6 +5554,7 @@ globalThis.addEventListener?.('beforeunload', (event) => {
 els.collect.addEventListener('click', collect);
 els.emptyCollect.addEventListener('click', () => els.collect.click());
 els.uploadCsv.addEventListener('click', () => els.uploadCsvInput.click());
+els.onboardingUpload.addEventListener('click', () => els.uploadCsv.click());
 els.emptyUploadCsv.addEventListener('click', () => els.uploadCsv.click());
 els.emptyReset.addEventListener('click', resetAnalyticsFilters);
 els.homeGuidePrimary.addEventListener('click', () => homeGuidePrimaryAction?.());
@@ -5630,6 +5572,9 @@ els.analyticsRefunds.parentElement.title = 'Показать возвраты';
 makeClickable(els.analyticsRefunds.parentElement, () => showKpiDetails('refund'));
 els.analyticsPurchases.parentElement.title = 'Показать все операции';
 makeClickable(els.analyticsPurchases.parentElement, () => showKpiDetails('all'));
+els.toggleAnalyticsDetails.addEventListener('click', () => {
+  setAnalyticsDetailsExpanded(!document.body.classList.contains('show-analytics-details'));
+});
 els.toggleRunDetails.addEventListener('click', () => {
   runDetailsOpen = !runDetailsOpen;
   renderRunSummary();
@@ -5662,8 +5607,23 @@ els.themeToggle.addEventListener('click', () => {
 });
 for (const button of els.tabButtons) {
   button.addEventListener('click', () => setActiveView(button.dataset.view));
+  button.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const current = els.tabButtons.indexOf(button);
+    const next = event.key === 'Home'
+      ? 0
+      : (event.key === 'End'
+          ? els.tabButtons.length - 1
+          : (current + (event.key === 'ArrowRight' ? 1 : -1) + els.tabButtons.length) % els.tabButtons.length);
+    const target = els.tabButtons[next];
+    setActiveView(target.dataset.view);
+    target.focus();
+  });
 }
 els.openCategoryReview.addEventListener('click', () => setActiveView('categories'));
+els.openCollectionAudit.addEventListener('click', openCollectionDetails);
+els.openMoneyRecovery.addEventListener('click', () => openControlSection(els.refundCenterList));
 els.categoryReviewSearch.addEventListener('input', () => {
   categoryReviewShownCount = 40;
   renderCategoryReview();
@@ -5728,6 +5688,8 @@ for (const input of [els.analyticsOzon, els.analyticsWb, els.analyticsYandex]) {
 for (const [, input] of collectSourceInputs) {
   input.addEventListener('change', () => {
     updateProgressFill();
+    renderSourceConnectionStates();
+    if (els.onboardingStart) els.onboardingStart.disabled = selectedCollectSources().length === 0;
     try {
       localStorage.setItem(collectSourcesStorageKey, JSON.stringify(selectedCollectSources()));
     } catch {
@@ -5735,6 +5697,11 @@ for (const [, input] of collectSourceInputs) {
     }
   });
 }
+els.categoryLevel.addEventListener('change', () => {
+  localStorage.setItem(categoryLevelStorageKey, els.categoryLevel.value);
+  categoriesExpanded = false;
+  updateAnalytics();
+});
 els.categoryChartType.addEventListener('change', () => {
   localStorage.setItem(categoryChartTypeStorageKey, els.categoryChartType.value);
   updateAnalytics();
@@ -5915,6 +5882,7 @@ dataSyncChannel?.addEventListener('message', (event) => {
 async function initializeApp() {
   els.collect.disabled = true;
   els.uploadCsv.disabled = true;
+  els.categoryLevel.value = loadCategoryLevel();
   els.categoryChartType.value = loadCategoryChartType();
   els.periodChartMode.value = loadPeriodChartMode();
   els.budgetMonth.value = currentMonthKey();
@@ -5957,6 +5925,12 @@ async function initializeApp() {
 
   els.onboardingPanel.hidden = Boolean(localStorage.getItem(onboardingStorageKey) || sourceRows.length);
   document.body.classList.toggle('first-run', !els.onboardingPanel.hidden);
+  if (!els.onboardingPanel.hidden && !localStorage.getItem(collectSourcesStorageKey)) {
+    for (const [, input] of collectSourceInputs) input.checked = false;
+    updateProgressFill();
+  }
+  await refreshSourcePermissionStates();
+  els.onboardingStart.disabled = selectedCollectSources().length === 0;
   await renderHistory();
   await checkStorageHealth();
   checkForUpdate();

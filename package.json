@@ -5,11 +5,17 @@
   "description": "Local release verification for MarketTrat",
   "scripts": {
     "package": "sh scripts/package-extension.sh",
+    "verify:browser": "node scripts/browser-smoke.js",
+    "verify:categories": "node scripts/category-benchmark.js",
+    "verify:performance": "node scripts/performance-benchmark.js",
     "verify": "sh scripts/verify.sh",
     "verify:reproducible": "sh scripts/check-reproducible.sh",
     "verify:release": "sh scripts/verify-release-candidate.sh"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "playwright": "1.61.1"
   }
 }

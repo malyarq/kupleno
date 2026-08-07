@@ -7,11 +7,12 @@
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <main>
+  <a id="skipLink" class="skip-link" href="#analyticsView">Перейти к содержимому</a>
+  <main id="mainContent">
     <header class="topbar">
       <div>
         <h1>MarketTrat</h1>
-        <p>Показывает, сколько вы потратили, что стоит проверить и какие возвраты ещё не пришли. История хранится на этом устройстве.</p>
+        <p>Собирает покупки из маркетплейсов в один отчёт: куда ушли деньги, что определилось неточно и какие возвраты ещё не пришли.</p>
       </div>
       <div class="top-actions">
         <button id="themeToggle" type="button" class="secondary theme-toggle" aria-label="Тёмная тема"></button>
@@ -22,18 +23,13 @@
     <section id="onboardingPanel" class="onboarding-panel" hidden aria-labelledby="onboardingTitle">
       <div class="onboarding-copy">
         <span class="local-badge">Хранится на вашем устройстве</span>
-        <h2 id="onboardingTitle">Первый отчёт — за три понятных шага</h2>
-        <p>Войдите в нужные магазины в этом браузере, оставьте их отмеченными ниже и нажмите «Собрать мои покупки».</p>
+        <h2 id="onboardingTitle">Посмотрите, куда уходят деньги на маркетплейсах</h2>
+        <p>Отметьте ниже магазины, где вы уже вошли в аккаунт. MarketTrat соберёт суммы, категории и возвраты, не отправляя историю покупок наружу.</p>
       </div>
       <ol class="onboarding-points">
-        <li><strong>Войти</strong><span>Откройте сайты магазинов и войдите в аккаунты.</span></li>
-        <li><strong>Разрешить</strong><span>Браузер спросит доступ только к отмеченным сайтам.</span></li>
-        <li><strong>Посмотреть</strong><span>MarketTrat сам соберёт отчёт и покажет следующий шаг.</span></li>
+        <li><strong>Выберите</strong><span>Только магазины, которыми пользуетесь.</span></li>
+        <li><strong>Разрешите</strong><span>Браузер спросит доступ только к ним.</span></li>
       </ol>
-      <div class="onboarding-actions">
-        <button id="onboardingDemo" type="button" class="secondary">Посмотреть пример</button>
-        <button id="onboardingStart" type="button">Собрать мои покупки</button>
-      </div>
     </section>
 
     <section id="runSummary" class="run-summary" hidden>
@@ -46,25 +42,34 @@
 
     <div id="runDetails" class="run-details">
       <section class="sources" aria-label="Источники сбора">
-        <span class="control-label">Магазины</span>
-        <label class="check">
-          <input id="sourceOzon" type="checkbox" checked>
-          <span><span class="source-badge ozon">O</span>Ozon</span>
+        <span class="control-label">Где искать покупки?</span>
+        <label class="check source-choice" data-source="ozon">
+          <input id="sourceOzon" type="checkbox">
+          <span class="source-choice-copy"><span><span class="source-badge ozon">O</span><strong>Ozon</strong></span><small id="sourceOzonState">Не выбран</small></span>
         </label>
-        <label class="check">
-          <input id="sourceWb" type="checkbox" checked>
-          <span><span class="source-badge wildberries">WB</span>Wildberries</span>
+        <label class="check source-choice" data-source="wildberries">
+          <input id="sourceWb" type="checkbox">
+          <span class="source-choice-copy"><span><span class="source-badge wildberries">WB</span><strong>Wildberries</strong></span><small id="sourceWbState">Не выбран</small></span>
         </label>
-        <label class="check">
-          <input id="sourceYandex" type="checkbox" checked>
-          <span><span class="source-badge yandex">Я</span>Яндекс Маркет</span>
+        <label class="check source-choice" data-source="yandex">
+          <input id="sourceYandex" type="checkbox">
+          <span class="source-choice-copy"><span><span class="source-badge yandex">Я</span><strong>Яндекс Маркет</strong></span><small id="sourceYandexState">Не выбран</small></span>
         </label>
-        <span class="source-permission-note">Оставьте отмеченными только магазины, где вы уже вошли в аккаунт.</span>
+        <span class="source-permission-note">Выберите хотя бы один магазин. Если вход не выполнен, откройте его сайт и войдите.</span>
         <details class="permission-details">
           <summary>Зачем браузер просит доступ?</summary>
           <p>Только чтобы по вашей команде прочитать заказы на отмеченных сайтах. Для Wildberries нужен также доступ к его cookie входа. Пароли MarketTrat не читает. Доступ можно отозвать в разделе «Настройки».</p>
         </details>
       </section>
+
+      <div class="onboarding-actions">
+        <button id="onboardingStart" type="button" disabled>Собрать мои покупки</button>
+        <button id="onboardingDemo" type="button" class="tertiary-button">Сначала посмотреть пример</button>
+        <details class="onboarding-alternative">
+          <summary>Уже есть таблица?</summary>
+          <button id="onboardingUpload" type="button" class="secondary">Загрузить CSV</button>
+        </details>
+      </div>
 
       <section class="status">
         <div id="statusText" role="status" aria-live="polite">Можно начинать.</div>
@@ -91,14 +96,14 @@
 
     <section id="updateBanner" class="update-banner" hidden></section>
 
-    <nav class="view-tabs" aria-label="Разделы">
-      <button class="tab-button active" type="button" data-view="analytics" aria-current="page">Главное</button>
-      <button class="tab-button" type="button" data-view="categories">Проверить <span id="categoryReviewBadge" class="tab-badge" hidden>0</span></button>
-      <button class="tab-button" type="button" data-view="control">Советы <span id="controlBadge" class="tab-badge" hidden>0</span></button>
-      <button class="tab-button" type="button" data-view="data">Настройки</button>
+    <nav class="view-tabs" aria-label="Разделы" role="tablist">
+      <button class="tab-button active" type="button" data-view="analytics" role="tab" aria-controls="analyticsView" aria-selected="true">Главное</button>
+      <button class="tab-button" type="button" data-view="categories" role="tab" tabindex="-1" aria-controls="categoriesView" aria-selected="false">Проверить <span id="categoryReviewBadge" class="tab-badge" hidden>0</span></button>
+      <button class="tab-button" type="button" data-view="control" role="tab" tabindex="-1" aria-controls="controlView" aria-selected="false">Советы <span id="controlBadge" class="tab-badge" hidden>0</span></button>
+      <button class="tab-button" type="button" data-view="data" role="tab" tabindex="-1" aria-controls="dataView" aria-selected="false">Настройки</button>
     </nav>
 
-    <section id="analyticsView" class="analytics view-panel active" aria-label="Главное" aria-hidden="false">
+    <section id="analyticsView" class="analytics view-panel active" role="tabpanel" tabindex="-1" aria-label="Главное" aria-hidden="false">
       <div class="analytics-titlebar">
         <h2>Главное</h2>
         <details class="analytics-filter-details">
@@ -195,7 +200,7 @@
           </div>
         </div>
         <div id="homeNextSteps" class="home-next-steps" hidden>
-          <strong>Потом</strong>
+          <strong>Потом, если захотите</strong>
           <ol id="homeNextStepList"></ol>
         </div>
       </section>
@@ -207,13 +212,28 @@
         <div><strong id="analyticsPurchases">0</strong><span id="analyticsPurchasesLabel">операций</span></div>
       </div>
 
+      <button id="toggleAnalyticsDetails" type="button" class="secondary analytics-details-toggle" aria-expanded="false">Показать подробный отчёт</button>
+
       <section id="reportTrust" class="report-trust" hidden aria-live="polite">
         <div>
           <span id="reportTrustBadge" class="local-badge">Качество отчёта</span>
           <strong id="reportTrustTitle">Данные готовы к анализу</strong>
           <span id="reportTrustText"></span>
+          <div id="reportTrustSources" class="report-trust-sources"></div>
         </div>
-        <button id="openCategoryReview" type="button" class="secondary">Проверить категории</button>
+        <div class="report-trust-actions">
+          <button id="openCollectionAudit" type="button" class="secondary">Проверить сбор</button>
+          <button id="openCategoryReview" type="button" class="secondary">Проверить категории</button>
+        </div>
+      </section>
+
+      <section id="moneyRecovery" class="money-recovery" hidden aria-live="polite">
+        <div>
+          <span class="local-badge">Можно вернуть</span>
+          <strong id="moneyRecoveryTitle">Возвраты под контролем</strong>
+          <span id="moneyRecoveryText"></span>
+        </div>
+        <button id="openMoneyRecovery" type="button">Открыть возвраты</button>
       </section>
 
       <section id="actionSummary" class="chart-panel action-summary" hidden aria-labelledby="actionSummaryTitle">
@@ -228,7 +248,7 @@
 
       <div class="analytics-layout">
         <div class="analytics-main">
-          <div class="chart-panel">
+          <div class="chart-panel secondary-analysis">
             <div class="panel-head">
               <h3>Динамика расходов</h3>
               <div class="panel-head-actions">
@@ -249,6 +269,12 @@
               <div class="panel-head-actions">
                 <span id="categorySummary"></span>
                 <span class="select-control compact-select">
+                  <select id="categoryLevel" aria-label="Детализация категорий">
+                    <option value="macro" selected>Крупно</option>
+                    <option value="detail">Подробно</option>
+                  </select>
+                </span>
+                <span class="select-control compact-select">
                   <select id="categoryChartType" aria-label="Вид категорий">
                     <option value="bars" selected>Столбцы</option>
                     <option value="donut">Круг</option>
@@ -259,7 +285,7 @@
             </div>
             <div id="categoryBreakdown" class="category-breakdown"></div>
           </div>
-          <div class="chart-panel spend-report-panel">
+          <div class="chart-panel spend-report-panel secondary-analysis">
             <div class="panel-head">
               <h3>Куда ушли деньги</h3>
               <button id="copyReport" type="button" class="secondary category-toggle">Копировать</button>
@@ -268,7 +294,7 @@
           </div>
         </div>
         <div class="analytics-side">
-          <div class="chart-panel">
+          <div class="chart-panel secondary-analysis">
             <h3>Источники</h3>
             <div id="sourceBreakdown" class="breakdown"></div>
           </div>
@@ -276,7 +302,7 @@
             <h3>Топ трат</h3>
             <ol id="topItems" class="top-items"></ol>
           </div>
-          <details id="budgetCard" class="chart-panel disclosure-card">
+          <details id="budgetCard" class="chart-panel disclosure-card secondary-analysis">
             <summary>
               <span><strong>Бюджет на месяц</strong><small>Необязательно. Раскройте, если хотите задать лимит.</small></span>
             </summary>
@@ -306,7 +332,7 @@
             <div id="budgetBreakdown" class="budget-breakdown"></div>
             </div>
           </details>
-          <details id="refundCard" class="chart-panel refund-panel disclosure-card">
+          <details id="refundCard" class="chart-panel refund-panel disclosure-card secondary-analysis">
             <summary class="panel-head">
               <div>
                 <strong>Ожидаемые возвраты</strong>
@@ -321,7 +347,7 @@
             </div>
           </details>
         </div>
-        <div class="chart-panel detail-panel">
+        <div class="chart-panel detail-panel secondary-analysis">
           <div class="panel-head">
             <h3 id="detailTitle">Детали операций</h3>
             <div class="panel-head-actions">
@@ -367,7 +393,7 @@
       </div>
     </section>
 
-    <section id="categoriesView" class="category-review-view view-panel" aria-label="Проверка категорий" aria-hidden="true">
+    <section id="categoriesView" class="category-review-view view-panel" role="tabpanel" tabindex="-1" inert aria-label="Проверка категорий" aria-hidden="true">
       <div class="data-titlebar category-review-titlebar">
         <div>
           <h2>Проверить покупки</h2>
@@ -386,7 +412,7 @@
       <button id="categoryReviewMore" type="button" class="secondary detail-more" hidden>Показать ещё</button>
     </section>
 
-    <section id="controlView" class="control-view view-panel" aria-label="Советы по покупкам" aria-hidden="true">
+    <section id="controlView" class="control-view view-panel" role="tabpanel" tabindex="-1" inert aria-label="Советы по покупкам" aria-hidden="true">
       <div class="data-titlebar control-titlebar">
         <div>
           <h2>Советы по покупкам</h2>
@@ -482,7 +508,7 @@
       </div>
     </section>
 
-    <section id="dataView" class="data-view view-panel" aria-label="Настройки и файлы" aria-hidden="true">
+    <section id="dataView" class="data-view view-panel" role="tabpanel" tabindex="-1" inert aria-label="Настройки и файлы" aria-hidden="true">
       <div class="data-titlebar">
         <div>
           <h2>Настройки и файлы</h2>
@@ -646,7 +672,7 @@
       </div>
     </section>
 
-    <section id="logView" class="panel view-panel technical-log" aria-label="Помощь при ошибке" aria-hidden="true">
+    <section id="logView" class="panel view-panel technical-log" role="tabpanel" tabindex="-1" inert aria-label="Помощь при ошибке" aria-hidden="true">
       <div class="panel-head">
         <div>
           <h2>Помощь при ошибке</h2>
@@ -742,6 +768,10 @@
     </form>
   </dialog>
   <script src="categories.js"></script>
+  <script src="analytics-core.js"></script>
+  <script src="analytics-utils.js"></script>
+  <script src="report-quality.js"></script>
+  <script src="source-health.js"></script>
   <script src="csv.js"></script>
   <script src="update.js"></script>
   <script src="preferences.js"></script>

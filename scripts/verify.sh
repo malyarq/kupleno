@@ -16,8 +16,13 @@ sh -n "$ROOT/scripts/verify.sh"
 sh -n "$ROOT/scripts/check-reproducible.sh"
 sh -n "$ROOT/scripts/check-vendored-dependencies.sh"
 sh -n "$ROOT/scripts/verify-release-candidate.sh"
+sh -n "$ROOT/scripts/verify-packaged-extension.sh"
 
 "$ROOT/scripts/check-vendored-dependencies.sh"
+node "$ROOT/scripts/check-doc-links.js"
+
+npm --prefix "$ROOT" run verify:categories
+npm --prefix "$ROOT" run verify:performance
 
 # Several legacy test files share an IndexedDB fixture, so keep all tests in
 # the Node test runner but execute files serially for a stable release gate.
@@ -39,5 +44,6 @@ git -C "$ROOT" diff --cached --check
   shasum -a 256 -c SHA256SUMS
 )
 node "$ROOT/scripts/release-evidence.js" verify "$(dirname -- "$OUTPUT")/release-evidence.json" "$OUTPUT"
+"$ROOT/scripts/verify-packaged-extension.sh" "$OUTPUT"
 
 printf 'verify: ok\n'

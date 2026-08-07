@@ -17,6 +17,7 @@ const requiredFiles = [
   '.github/PULL_REQUEST_TEMPLATE.md',
   '.github/workflows/verify-release.yml',
   '.github/workflows/release-candidate.yml',
+  'package-lock.json',
   'CHANGELOG.md',
   'CONTRIBUTING.md',
   'PRIVACY.md',
@@ -28,7 +29,20 @@ const requiredFiles = [
   'docs/DATA_AND_COMPATIBILITY.md',
   'docs/GITHUB_SETTINGS.md',
   'docs/MAINTENANCE.md',
-  'docs/TESTING.md'
+  'docs/TESTING.md',
+  'extension/analytics-core.js',
+  'extension/analytics-utils.js',
+  'extension/category-benchmark.json',
+  'extension/fixtures/ozon-receipts.json',
+  'extension/fixtures/wb-receipts.json',
+  'extension/fixtures/yandex-receipts.json',
+  'extension/report-quality.js',
+  'extension/source-health.js',
+  'scripts/browser-smoke.js',
+  'scripts/category-benchmark.js',
+  'scripts/check-doc-links.js',
+  'scripts/performance-benchmark.js',
+  'scripts/verify-packaged-extension.sh'
 ];
 
 for (const relative of requiredFiles) {
@@ -51,6 +65,8 @@ for (const workflow of ['.github/workflows/verify-release.yml', '.github/workflo
     assert.match(action, /^[^@]+@[0-9a-f]{40}$/, `${action} must be pinned to a full commit SHA`);
   }
   assert.match(source, /permissions:\n\s+contents: read/);
+  assert.match(source, /npm ci/);
+  assert.match(source, /playwright install --with-deps chromium/);
 }
 
 const candidateWorkflow = read('.github/workflows/release-candidate.yml');
@@ -78,6 +94,17 @@ assert.match(packageScript, /Refusing ambiguous root archive/);
 for (const required of ['LICENSE', 'PRIVACY.md', 'SECURITY.md', 'SUPPORT.md', 'THIRD_PARTY_NOTICES.md']) {
   assert.ok(packageScript.includes(required), `${required} must be included in the package`);
 }
+
+const verifyScript = read('scripts/verify.sh');
+assert.match(verifyScript, /verify:categories/);
+assert.match(verifyScript, /verify:performance/);
+assert.match(verifyScript, /check-doc-links\.js/);
+assert.match(verifyScript, /verify-packaged-extension\.sh/);
+assert.doesNotMatch(verifyScript, /npm --prefix "\$ROOT" run verify:browser\s*\n\s*"\$ROOT\/scripts\/package-extension\.sh"/);
+
+const packagedSmoke = read('scripts/verify-packaged-extension.sh');
+assert.match(packagedSmoke, /unzip -q "\$ARCHIVE"/);
+assert.match(packagedSmoke, /verify:browser -- "\$stage\/extension"/);
 
 const thirdParty = read('THIRD_PARTY_NOTICES.md');
 const vendoredCheck = read('scripts/check-vendored-dependencies.sh');

@@ -1,0 +1,32 @@
+[
+  {
+    "name": "complete purchase",
+    "type": "INCOME",
+    "html": "<div class=\"header\">Кассовый чек. Приход</div><table class=\"info-table\"><tr><td>Смена N 72</td><td>02.06.26 11:50</td></tr></table><table class=\"receipt-table\"><tr><td>1.</td><td>Кофе<br><div>Признак способа расчета: ПОЛНЫЙ РАСЧЕТ</div></td><td>699.00</td><td>1.000</td><td>НДС 5%</td><td>699.00</td></tr><tr><td></td><td>ИТОГ</td><td></td><td></td><td></td><td>699.00</td></tr></table>",
+    "expected": { "rows": 1, "amount": "699.00", "type": "purchase", "quality": "complete" }
+  },
+  {
+    "name": "refund",
+    "type": "RETURN_INCOME",
+    "html": "<div class=\"header\">Кассовый чек. Возврат прихода</div><table class=\"info-table\"><tr><td>Смена N 72</td><td>03.06.26 11:50</td></tr></table><table class=\"receipt-table\"><tr><td>1.</td><td>Кофе</td><td>699.00</td><td>1.000</td><td>НДС 5%</td><td>699.00</td></tr><tr><td></td><td>ИТОГ</td><td></td><td></td><td></td><td>699.00</td></tr></table>",
+    "expected": { "rows": 1, "amount": "-699.00", "type": "refund", "quality": "complete" }
+  },
+  {
+    "name": "mismatched item sum uses receipt total",
+    "type": "INCOME",
+    "html": "<div class=\"header\">Кассовый чек. Приход</div><table class=\"info-table\"><tr><td>Смена N 72</td><td>04.06.26 11:50</td></tr></table><table class=\"receipt-table\"><tr><td>1.</td><td>Кофе</td><td>100.00</td><td>1.000</td><td>НДС 5%</td><td>100.00</td></tr><tr><td></td><td>ИТОГ</td><td></td><td></td><td></td><td>300.00</td></tr></table>",
+    "expected": { "rows": 1, "amount": "300.00", "type": "purchase", "quality": "fallback" }
+  },
+  {
+    "name": "missing total is unverified",
+    "type": "INCOME",
+    "html": "<div class=\"header\">Кассовый чек. Приход</div><table class=\"info-table\"><tr><td>Смена N 72</td><td>04.06.26 11:50</td></tr></table><table class=\"receipt-table\"><tr><td>1.</td><td>Кофе</td><td>100.00</td><td>1.000</td><td>НДС 5%</td><td>100.00</td></tr></table>",
+    "expected": { "rows": 1, "amount": "100.00", "type": "purchase", "quality": "unverified" }
+  },
+  {
+    "name": "empty response",
+    "type": "INCOME",
+    "html": "<html><body>Чек временно недоступен</body></html>",
+    "expected": { "rows": 0 }
+  }
+]

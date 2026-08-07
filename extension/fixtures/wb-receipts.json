@@ -1,0 +1,22 @@
+[
+  {
+    "name": "multiple rows including services",
+    "html": "<div class=\"products-item\"><div class=\"products-cell products-cell_name\"><div class=\"products-prop-value\">Наименование Футболка</div></div><div class=\"products-cell products-cell_price\"></div><div class=\"products-cell_cost\"><div class=\"products-prop-value\">1299,00 ₽</div></div></div><div class=\"products-item\"><div class=\"products-cell products-cell_name\"><div class=\"products-prop-value\">Наименование Услуга доставки</div></div><div class=\"products-cell products-cell_price\"></div><div class=\"products-cell_cost\"><div class=\"products-prop-value\">100,00 ₽</div></div></div><div class=\"total\"></div>",
+    "expected": { "rows": 2, "amount": 1399, "titles": ["Футболка", "Услуга доставки"] }
+  },
+  {
+    "name": "thousands separator",
+    "html": "<div class=\"products-item\"><div class=\"products-cell products-cell_name\"><div class=\"products-prop-value\">Наименование Наушники</div></div><div class=\"products-cell products-cell_price\"></div><div class=\"products-cell_cost\"><div class=\"products-prop-value\">12 499,50 ₽</div></div></div><div class=\"total\"></div>",
+    "expected": { "rows": 1, "amount": 12499.5, "titles": ["Наушники"] }
+  },
+  {
+    "name": "missing price is rejected",
+    "html": "<div class=\"products-item\"><div class=\"products-cell products-cell_name\"><div class=\"products-prop-value\">Наименование Товар без суммы</div></div><div class=\"products-cell products-cell_price\"></div></div><div class=\"total\"></div>",
+    "expected": { "rows": 0, "amount": 0, "titles": [] }
+  },
+  {
+    "name": "challenge page has no purchases",
+    "html": "<html><body><h1>Подтвердите, что вы не робот</h1></body></html>",
+    "expected": { "rows": 0, "amount": 0, "titles": [] }
+  }
+]

@@ -3,6 +3,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const categoryEngine = require('./categories.js');
+const analyticsCore = require('./analytics-core.js');
+const analyticsUtils = require('./analytics-utils.js');
+const reportQuality = require('./report-quality.js');
+const sourceHealth = require('./source-health.js');
 const preferenceEngine = require('./preferences.js');
 const lifecycleEngine = require('./lifecycle.js');
 
@@ -23,6 +27,8 @@ function fakeElement() {
     appendChild() {},
     removeChild() {},
     setAttribute() {},
+    toggleAttribute() {},
+    closest() { return fakeElement(); },
     scrollIntoView() {},
     focus() {}
   };
@@ -46,6 +52,10 @@ const context = {
   chrome: null,
   globalThis: null,
   MarketTratPreferences: preferenceEngine,
+  MarketTratAnalyticsCore: analyticsCore,
+  MarketTratAnalyticsUtils: analyticsUtils,
+  MarketTratReportQuality: reportQuality,
+  MarketTratSourceHealth: sourceHealth,
   localStorage: {
     getItem() { return null; },
     setItem() {},
@@ -64,6 +74,7 @@ const context = {
   requestAnimationFrame(callback) { callback(); },
   fetch() { return Promise.reject(new Error('offline')); }
 };
+Object.assign(context, analyticsUtils);
 context.globalThis = context;
 vm.createContext(context);
 vm.runInContext(source, context);
@@ -90,6 +101,29 @@ const confidentCategory = JSON.parse(JSON.stringify(context.withCategory({
 })));
 assert.equal(confidentCategory.category, 'Бытовая химия');
 assert.equal(confidentCategory.category_needs_review, false);
+assert.equal(context.withCategory({ title: 'Яндекс Плюс', category: 'Подписки' }).category, 'Цифровые покупки');
+assert.equal(context.withCategory({ title: 'Подарочная бумага', category: 'Пакеты и упаковка' }).category, 'Дом');
+const migratedLegacyTobacco = JSON.parse(JSON.stringify(context.prepareSourceRow({
+  title: 'POD система Vaporesso XROS', category: 'Продукты'
+})));
+assert.equal(migratedLegacyTobacco.category, 'Табак и никотин');
+assert.equal(migratedLegacyTobacco.base_category, '');
+for (const [title, oldCategory, expected] of [
+  ['Скотч прозрачный, клейкая лента', 'Продукты', 'Дом'],
+  ['Крем сливочный для торта', 'Красота и уход', 'Продукты'],
+  ['Чехол для электронной книги', 'Книги', 'Аксессуары'],
+  ['Ключ активации Windows 11 Pro', 'Электроника', 'Цифровые покупки']
+]) {
+  const migrated = context.prepareSourceRow({ title, category: oldCategory });
+  assert.equal(migrated.category, expected, title);
+  assert.equal(migrated.base_category, '', `${title}: старая автоматическая категория должна обновляться дальше`);
+}
+assert.equal(context.prepareSourceRow({ title: 'Кофе молотый', category: 'Продукты' }).base_category, 'Продукты');
+const preservedProvidedTobacco = JSON.parse(JSON.stringify(context.prepareSourceRow({
+  title: 'POD система Vaporesso XROS', category: 'Продукты', category_origin: 'provided'
+})));
+assert.equal(preservedProvidedTobacco.category, 'Продукты');
+assert.equal(preservedProvidedTobacco.base_category, 'Продукты');
 context.categoryQualityFixture = [
   { ...ambiguousCategory, amount: '500.00' },
   { ...confidentCategory, amount: '300.00' },
@@ -469,6 +503,12 @@ assert.ok(
     < deleteAllDataBody.indexOf('await featureStorage.clear()')
 );
 assert.match(deleteAllDataBody, /collectJobCleanupError/);
+const resetAfterClearBody = fullSource.slice(
+  fullSource.indexOf('function resetLocalDataAfterClear('),
+  fullSource.indexOf('function renderLog()')
+);
+assert.match(resetAfterClearBody, /for \(const \[, input\] of collectSourceInputs\) input\.checked = false/);
+assert.match(resetAfterClearBody, /setMutationControlsDisabled\(false\)/);
 
 const diagnostic = context.sourceDiagnostic('ozon', {
   ozon: { receipts: 18, parsedReceipts: 17, failedReceipts: 1, itemRows: 42 }

@@ -36,6 +36,12 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      - name: Install locked test tools
+        run: npm ci
+
+      - name: Install test Chromium
+        run: npx playwright install --with-deps chromium
+
       - name: Verify exact annotated tag and release contract
         shell: bash
         env:
