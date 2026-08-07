@@ -4,7 +4,6 @@
 - [Данные, совместимость, обновление и откат](DATA_AND_COMPATIBILITY.md)
 - [Проверки](TESTING.md)
 - [Сопровождение и реакция на поломки](MAINTENANCE.md)
-- [Обязательные настройки GitHub](GITHUB_SETTINGS.md)
 - [Выпуск релиза](../RELEASE.md)
 - [Поддержка](../SUPPORT.md)
 - [Безопасность](../SECURITY.md)

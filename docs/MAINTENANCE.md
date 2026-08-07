@@ -35,8 +35,8 @@
 
 ## Зависимости
 
-Runtime npm-зависимостей нет. Playwright используется только для проверки и зафиксирован в `package-lock.json`. GitHub Actions закреплены полными commit SHA. PDF.js проверяется локальным hash gate и описан в `THIRD_PARTY_NOTICES.md`. Dependabot ежемесячно проверяет Actions и npm metadata.
+Runtime npm-зависимостей нет. Playwright используется только для проверки и зафиксирован в `package-lock.json`. GitHub Actions закреплены полными commit SHA. PDF.js проверяется локальным hash gate и описан в `THIRD_PARTY_NOTICES.md`. GitHub alerts сообщают об известных уязвимостях; обновления применяются вручную после проверки.
 
 ## Владение
 
-`@malyarq` владеет release, security, storage, permissions и privacy изменениями. CODEOWNERS фиксирует это в GitHub. Перед передачей проекта новый владелец должен получить доступ к репозиторию, Security Advisories и настройкам branch/tag rulesets.
+`@malyarq` владеет release, security, storage, permissions и privacy изменениями. Перед передачей проекта новый владелец должен получить доступ к репозиторию, Security Advisories и настройкам защиты `main` и тегов.

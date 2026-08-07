@@ -9,12 +9,8 @@ const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
 
 const requiredFiles = [
   '.nvmrc',
-  '.github/CODEOWNERS',
-  '.github/dependabot.yml',
   '.github/ISSUE_TEMPLATE/config.yml',
   '.github/ISSUE_TEMPLATE/bug_report.yml',
-  '.github/ISSUE_TEMPLATE/feature_request.yml',
-  '.github/PULL_REQUEST_TEMPLATE.md',
   '.github/workflows/verify-release.yml',
   '.github/workflows/release-candidate.yml',
   'package-lock.json',
@@ -27,7 +23,6 @@ const requiredFiles = [
   'THIRD_PARTY_NOTICES.md',
   'docs/ARCHITECTURE.md',
   'docs/DATA_AND_COMPATIBILITY.md',
-  'docs/GITHUB_SETTINGS.md',
   'docs/MAINTENANCE.md',
   'docs/TESTING.md',
   'extension/analytics-core.js',
@@ -78,9 +73,8 @@ assert.match(candidateWorkflow, /ref: \$\{\{ inputs\.tag \|\| github\.ref \}\}/)
 assert.doesNotMatch(candidateWorkflow, /gh release|softprops\/action-gh-release|contents:\s*write/i);
 
 const verifyWorkflow = read('.github/workflows/verify-release.yml');
-assert.match(verifyWorkflow, /statuses: write/);
-assert.match(verifyWorkflow, /MarketTrat verification/);
-assert.match(verifyWorkflow, /Tests and reproducibility passed/);
+assert.match(verifyWorkflow, /push:\n\s+branches: \[main\]/);
+assert.doesNotMatch(verifyWorkflow, /pull_request:|statuses:\s*write|MarketTrat verification/);
 assert.doesNotMatch(verifyWorkflow, /contents:\s*write|gh release|softprops\/action-gh-release/i);
 
 const candidateScript = read('scripts/verify-release-candidate.sh');

@@ -225,6 +225,7 @@ async function main() {
     page.once('dialog', (dialog) => dialog.accept());
     await page.locator('#importDataBackupInput').setInputFiles(backupPath);
     await page.waitForFunction(() => document.body.classList.contains('has-data'));
+    await page.locator('#onboardingPanel').waitFor({ state: 'hidden' });
     assert.equal(await page.locator('#onboardingPanel').isVisible(), false, 'восстановление должно возвращать пользователя к отчёту');
     assert.match(await page.locator('#downloadCsv').textContent(), /\(3\)/u);
 
