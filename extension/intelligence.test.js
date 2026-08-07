@@ -51,6 +51,40 @@ assert.ok(anomalyTypes.includes('large_new_expense'));
 assert.ok(anomalyTypes.includes('refund_without_purchase'));
 assert.equal(report.anomalies.find((item) => item.type === 'refund_without_purchase').rowIndexes[0], 10);
 
+const sameReceiptAnomalies = intelligence.detectAnomalies([
+  { date: '2026-05-01', source: 'ozon', receipt_url: 'receipt-1', title: 'Кабель USB-C', amount: '500.00' },
+  { date: '2026-05-01', source: 'ozon', receipt_url: 'receipt-1', title: 'Кабель USB-C', amount: '500.00' }
+]);
+assert.equal(sameReceiptAnomalies.some((item) => item.type === 'possible_duplicate'), false, 'позиции одного чека не являются дублем');
+assert.equal(intelligence.analyze([
+  { date: '2026-05-01', source: 'yandex', title: 'Работа сервиса', amount: '99.00' }
+]).meta.ignored.service, 1, 'сервисный сбор не должен попадать в товарные советы');
+assert.equal(intelligence.analyze([
+  { date: '2026-05-01', source: 'ozon', title: 'Ключ для сервиса защищённой сети', amount: '99.00' }
+]).meta.processedRows, 1, 'товар с упоминанием сервиса не является сервисным сбором');
+const sameOrderAnomalies = intelligence.detectAnomalies([
+  { date: '2026-05-01', source: 'ozon', receipt_url: 'receipt-pre', raw_title: 'Заказ № ORDER-1', title: 'Кабель USB-C', amount: '500.00' },
+  { date: '2026-05-01', source: 'ozon', receipt_url: 'receipt-full', raw_title: 'Заказ   №   ORDER-1', title: 'Кабель USB-C', amount: '500.00' }
+]);
+assert.equal(sameOrderAnomalies.some((item) => item.type === 'possible_duplicate'), false, 'расчёты одного заказа не являются дублем покупки');
+const differentReceiptAnomalies = intelligence.detectAnomalies([
+  { date: '2026-05-01', source: 'ozon', receipt_url: 'receipt-1', title: 'Кабель USB-C', amount: '500.00' },
+  { date: '2026-05-01', source: 'ozon', receipt_url: 'receipt-2', title: 'Кабель USB-C', amount: '500.00' }
+]);
+assert.equal(differentReceiptAnomalies.some((item) => item.type === 'possible_duplicate'), true, 'похожие покупки из разных чеков остаются кандидатом');
+
+const staleAnomalies = intelligence.detectAnomalies([
+  { date: '2020-01-01', title: 'Старый кабель USB', amount: '500.00' },
+  { date: '2020-01-01', title: 'Старый кабель USB', amount: '500.00' },
+  { date: '2026-05-01', title: 'Свежий ориентир', amount: '100.00' }
+]);
+assert.equal(staleAnomalies.some((item) => item.type === 'possible_duplicate'), false, 'давняя история не должна создавать сегодняшние задачи');
+
+const longIdentity = intelligence.normalizeProductIdentity('ZuluPrime ZModel alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november');
+assert.ok(longIdentity.tokens.includes('zuluprime'));
+assert.ok(longIdentity.tokens.includes('zmodel'), 'ведущие марка и модель не должны исчезать из длинного названия');
+assert.equal(longIdentity.tokens.includes('november'), false, 'для линейной работы используется ограниченное число первых признаков');
+
 const excludedAndService = intelligence.buildPriceHistory([
   { date: '2026-01-01', title: 'Доставка', amount: '200.00' },
   { date: '2026-01-02', title: 'Товар', amount: '100.00', excluded: true },

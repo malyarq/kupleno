@@ -65,6 +65,20 @@ assert.equal(partialSettlement.rows.map((item) => item.title).join(','), 'Тов
 assert.equal(partialSettlement.rows.reduce((sum, item) => sum + Number(item.amount), 0), 300);
 assert.equal(partialSettlement.prepaymentRowsDropped, 1);
 
+const spacedOrderNumber = filterOzonRows([
+  row({ raw_title: 'Заказ № ORDER-SPACED', __ozonSettlementKind: 'prepayment' }),
+  row({
+    raw_title: 'Заказ   №   ORDER-SPACED',
+    date: '2026-01-02 10:00',
+    receipt_url: 'https://www.ozon.ru/receipt?id=receipt-spaced-full',
+    __ozonSettlementKind: 'full'
+  })
+]);
+assert.equal(spacedOrderNumber.rows.length, 1, 'пробел после № не должен разделять расчёты одного заказа');
+assert.equal(spacedOrderNumber.prepaymentRowsDropped, 1);
+assert.equal(spacedOrderNumber.rows[0].ozon_settlement_kind, 'full');
+assert.ok(spacedOrderNumber.supersededReceipts.includes('https://www.ozon.ru/receipt?id=receipt-1'));
+
 const splitFullSettlement = filterOzonRows([
   row({ item_index: '1', __ozonSettlementKind: 'prepayment' }),
   row({ item_index: '2', __ozonSettlementKind: 'prepayment' }),

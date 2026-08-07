@@ -1351,11 +1351,6 @@ async function collectSpend({ sources, options }) {
       if (Number(item.result.stats?.unverifiedReceipts) > 0) {
         warnings.push(`${label}: у чеков ${Number(item.result.stats.unverifiedReceipts)} не распознан итог; строки сохранены, но полнота состава не подтверждена`);
       }
-      const aggregateAdjusted = Number(item.result.stats?.aggregatePrepaymentRowsAdjusted) || 0;
-      const aggregateDropped = Number(item.result.stats?.aggregatePrepaymentRowsDropped) || 0;
-      if (aggregateAdjusted || aggregateDropped) {
-        warnings.push(`${label}: агрегатная предоплата сверена с полным расчётом; скорректировано ${aggregateAdjusted}, погашено ${aggregateDropped}`);
-      }
     } else {
       warnings.push(item.error.message);
     }

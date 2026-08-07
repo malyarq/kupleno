@@ -75,6 +75,11 @@ setSpendCategoryRules({ rules: [{ category: 'Цифровые покупки', w
 assert.equal(guessSpendCategory('Iron Sky электронный ключ PC Steam'), 'Цифровые покупки');
 setSpendCategoryRules({ rules: [] });
 
+setSpendCategoryRules({ rules: [{ category: 'Здоровье', weight: 7, tokens: ['капсулы'] }] });
+const overlappingHealthTokens = classifySpendCategory('Капсулы для стирки цветного белья');
+assert.equal(overlappingHealthTokens.category, 'Бытовая химия', 'один корень не должен считаться двумя независимыми признаками');
+setSpendCategoryRules({ rules: [] });
+
 // v2 must make a decision auditable. These deliberately overlap: the old
 // keyword-only behaviour is where false positives are most expensive.
 const adversarialCases = [
@@ -172,6 +177,20 @@ assert.deepEqual(classifySpendCategory('Подарочный набор'), {
   evidence: [], candidates: [], needsReview: true, method: 'lexicon-v2'
 });
 assert.equal(classifySpendCategory({ raw_title: 'чай зелёный' }).category, 'Продукты');
+
+for (const [title, category] of [
+  ['Фарш говяжий охлаждённый 500 г', 'Продукты'],
+  ['Магний бисглицинат в капсулах', 'Здоровье'],
+  ['Сушилка для посуды настольная', 'Дом'],
+  ['Контейнер для еды герметичный', 'Дом'],
+  ['Автомагнитола с Bluetooth', 'Авто'],
+  ['Автомобильный сабвуфер активный', 'Авто'],
+  ['Аудиоинтерфейс Focusrite Scarlett Solo', 'Электроника']
+]) {
+  const result = classifySpendCategory(title);
+  assert.equal(result.category, category, `${title}: очевидная категория не должна требовать ручной проверки`);
+  assert.equal(result.needsReview, false, title);
+}
 
 // A local pack may replace an embedded token, but must not score it twice.
 setSpendCategoryRules({ rules: [{ category: 'Цифровые покупки', weight: 9, tokens: ['steam'] }] });

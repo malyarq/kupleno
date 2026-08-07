@@ -15,13 +15,16 @@
   const MAX_TOKENS = 12;
   const MAX_GROUPS_PER_TOKEN = 64;
   const MAX_RECENT_DUPLICATE_CANDIDATES = 8;
-  const DEFAULT_MAX_ANOMALIES = 1000;
+  const DEFAULT_MAX_ANOMALIES = 50;
+  const DEFAULT_RECENT_DAYS = 180;
   const STOP_WORDS = new Set([
     'и', 'в', 'во', 'на', 'для', 'с', 'со', 'по', 'от', 'до', 'из', 'за', 'при', 'без', 'под',
     'the', 'a', 'an', 'of', 'and', 'with', 'for', 'to', 'in', 'new', 'товар', 'набор', 'штука',
-    'шт', 'упаковка', 'уп', 'оригинал', 'original', 'цвет', 'размер', 'модель', 'заказ'
+    'шт', 'упаковка', 'уп', 'оригинал', 'original', 'цвет', 'размер', 'модель', 'заказ',
+    'белый', 'белая', 'белое', 'черный', 'черная', 'черное', 'чёрный', 'чёрная', 'чёрное',
+    'мужской', 'мужская', 'мужское', 'женский', 'женская', 'женское'
   ]);
-  const SERVICE_TITLE = /(?:^|\s)(?:доставка|доставк[аиу]|комисси[яию]|сервис(?:ный|ная|ный сбор)?|service\s*fee|delivery|shipping)(?:\s|$)/iu;
+  const SERVICE_TITLE = /^(?:работа сервиса|комиссия сервиса)$|(?:^|\s)(?:доставка|доставк[аиу]|комисси[яию]|сервис(?:ный|ная|ный сбор)?|service\s*fee|delivery|shipping)(?:\s|$)/iu;
   const REFUND_TYPE = /refund|return|возврат/u;
   const QUANTITY_PATTERN = /(\d+(?:[.,]\d+)?)\s*(кг|kg|г|gr|g|л|l|мл|ml|шт|pcs?|pc|уп|pack)(?=\s|$)/giu;
 
@@ -93,7 +96,22 @@
     const tokens = normalizeText(withoutQuantity)
       .split(' ')
       .filter((token) => token.length >= 2 && !STOP_WORDS.has(token));
-    return [...new Set(tokens)].sort().slice(0, MAX_TOKENS);
+    return [...new Set(tokens)].slice(0, MAX_TOKENS).sort();
+  }
+
+  function receiptIdentity(row) {
+    const source = normalizeText(row.source ?? row.marketplace ?? '');
+    const receipt = String(
+      row.receipt_url ?? row.receiptUrl ?? row.order_id ?? row.orderId ?? row.marketplace_id ?? ''
+    ).trim();
+    return source && receipt ? `${source}\u0001${receipt}` : '';
+  }
+
+  function marketplaceOrderIdentity(row) {
+    const source = normalizeText(row.source ?? row.marketplace ?? '');
+    if (source !== 'ozon') return '';
+    const order = String(row.raw_title ?? row.rawTitle ?? '').match(/Заказ\s*№\s*(\S+)/iu)?.[1] || '';
+    return order ? `${source}\u0001${order}` : '';
   }
 
   /**
@@ -166,7 +184,9 @@
         amount: Math.abs(amount),
         refund,
         identity,
-        title: identity.title
+        title: identity.title,
+        receiptIdentity: receiptIdentity(row),
+        orderIdentity: marketplaceOrderIdentity(row)
       });
     });
     return { entries, ignored };
@@ -357,8 +377,21 @@
     const anomalies = [];
     const maxAnomalies = Number.isSafeInteger(options.maxAnomalies) && options.maxAnomalies > 0
       ? options.maxAnomalies : DEFAULT_MAX_ANOMALIES;
+    const recentDays = Number.isSafeInteger(options.recentDays) && options.recentDays > 0
+      ? options.recentDays : DEFAULT_RECENT_DAYS;
+    const latestDay = groups.flatMap((group) => group.entries.map((entry) => entry.day))
+      .filter((day) => day !== null)
+      .reduce((latest, day) => Math.max(latest, day), Number.MIN_SAFE_INTEGER);
+    const cutoffDay = latestDay === Number.MIN_SAFE_INTEGER ? Number.MIN_SAFE_INTEGER : latestDay - recentDays;
+    const severity = { refund_without_purchase: 4, possible_duplicate: 3, price_increase: 2, large_new_expense: 1 };
+    const compareAnomalies = (left, right) => (severity[right.type] || 0) - (severity[left.type] || 0)
+      || (right.latestDay ?? Number.MIN_SAFE_INTEGER) - (left.latestDay ?? Number.MIN_SAFE_INTEGER)
+      || (right.amount || 0) - (left.amount || 0)
+      || left.name.localeCompare(right.name, 'ru');
+    const poolLimit = Math.max(200, maxAnomalies * 4);
     const add = (anomaly) => {
-      if (anomalies.length < maxAnomalies) anomalies.push(anomaly);
+      anomalies.push(anomaly);
+      if (anomalies.length > poolLimit) anomalies.sort(compareAnomalies).splice(poolLimit);
     };
     const positiveAmounts = groups.flatMap((group) => group.entries.filter((entry) => !entry.refund).map((entry) => entry.amount));
     const medianAmount = median(positiveAmounts) || 0;
@@ -371,9 +404,12 @@
       const refunds = sortedEntries(group.entries.filter((entry) => entry.refund));
       for (let currentIndex = 0; currentIndex < purchases.length; currentIndex += 1) {
         const current = purchases[currentIndex];
+        if (current.day !== null && current.day < cutoffDay) continue;
         for (let offset = 1; offset <= MAX_RECENT_DUPLICATE_CANDIDATES && currentIndex - offset >= 0; offset += 1) {
           const previous = purchases[currentIndex - offset];
           if (current.day === null || previous.day === null || current.day - previous.day > 1) break;
+          if (current.receiptIdentity && current.receiptIdentity === previous.receiptIdentity) continue;
+          if (current.orderIdentity && current.orderIdentity === previous.orderIdentity) continue;
           const relativeDifference = Math.abs(current.amount - previous.amount) / Math.max(current.amount, previous.amount);
           if (relativeDifference > 0.03) continue;
           add({
@@ -382,11 +418,14 @@
             name: group.name,
             rowIndexes: [previous.rowIndex, current.rowIndex],
             confidence: 0.62,
+            latestDay: current.day,
             reason: 'Похожие покупки с почти одинаковой суммой сделаны в пределах одного дня.'
           });
+          break;
         }
       }
-      if (purchases.length === 1 && purchases[0].amount >= largeThreshold) {
+      if (purchases.length === 1 && purchases[0].amount >= largeThreshold
+        && (purchases[0].day === null || purchases[0].day >= cutoffDay)) {
         add({
           type: 'large_new_expense',
           groupId: group.id,
@@ -395,10 +434,12 @@
           amount: round(purchases[0].amount),
           threshold: round(largeThreshold),
           confidence: 0.58,
+          latestDay: purchases[0].day,
           reason: 'Новая группа покупок заметно крупнее обычной суммы в этой выгрузке.'
         });
       }
       for (const refund of refunds) {
+        if (refund.day !== null && refund.day < cutoffDay) continue;
         const hasEarlierPurchase = purchases.some((purchase) => refund.day === null || purchase.day === null || purchase.day <= refund.day);
         if (hasEarlierPurchase) continue;
         add({
@@ -408,6 +449,7 @@
           rowIndexes: [refund.rowIndex],
           amount: round(refund.amount),
           confidence: 0.7,
+          latestDay: refund.day,
           reason: 'Возврат не удалось сопоставить с более ранней покупкой похожего товара.'
         });
       }
@@ -418,6 +460,8 @@
     for (const history of histories) {
       if (history.changePercent === null || history.changePercent < increaseThreshold) continue;
       const current = history.observations.at(-1);
+      const currentDay = dateDay(current.date);
+      if (currentDay !== null && currentDay < cutoffDay) continue;
       add({
         type: 'price_increase',
         groupId: history.groupId,
@@ -425,10 +469,14 @@
         rowIndexes: [history.observations.at(-2).rowIndex, current.rowIndex],
         changePercent: history.changePercent,
         confidence: history.confidence,
+        latestDay: currentDay,
         reason: 'Цена за единицу похожего товара заметно выросла относительно предыдущей покупки.'
       });
     }
-    return anomalies;
+    return anomalies
+      .sort(compareAnomalies)
+      .slice(0, maxAnomalies)
+      .map(({ latestDay: _latestDay, ...anomaly }) => anomaly);
   }
 
   function analyze(rows, options = {}) {

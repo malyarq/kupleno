@@ -131,6 +131,7 @@ async function main() {
     await page.locator('#onboardingDemo').click();
     await page.locator('#homeGuide').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#onboardingPanel').isVisible(), false);
+    assert.notEqual(await page.evaluate(() => document.activeElement?.id), 'skipLink', 'мышь не должна неожиданно показывать клавиатурную ссылку');
     assert.match(await page.locator('#homeGuideTitle').textContent(), /так будет выглядеть ваш отчёт/u);
     assert.equal(await page.locator('.view-tabs').isVisible(), true);
     assert.equal(await page.locator('#activeFilters').isVisible(), false, 'настройки по умолчанию не должны занимать строку');
@@ -143,6 +144,12 @@ async function main() {
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('#homeGuide').scrollIntoViewIfNeeded();
+    const skipLinkState = await page.evaluate(() => {
+      const link = document.querySelector('#skipLink');
+      const rect = link.getBoundingClientRect();
+      return { active: document.activeElement?.id, top: rect.top, bottom: rect.bottom, transform: getComputedStyle(link).transform };
+    });
+    assert.ok(skipLinkState.bottom <= 0, `клавиатурная ссылка видна без фокуса: ${JSON.stringify(skipLinkState)}`);
     const pageWidth = await page.evaluate(() => ({
       viewport: window.innerWidth,
       document: document.documentElement.scrollWidth
@@ -166,6 +173,7 @@ async function main() {
 
     await page.locator('#uploadCsvInput').setInputFiles(smallImport);
     await page.waitForFunction(() => document.querySelector('#downloadCsv')?.textContent?.includes('(3)'));
+    await page.locator('#onboardingPanel').waitFor({ state: 'hidden' });
     assert.equal(await page.locator('#onboardingPanel').isVisible(), false, 'импорт должен завершать первый запуск');
     assert.equal(await page.locator('#categoryLevel').inputValue(), 'macro');
     const macroCategories = await page.locator('#categoryBreakdown').textContent();
@@ -186,6 +194,9 @@ async function main() {
     await page.locator('#operationSave').click();
     await page.locator('#moneyRecovery').waitFor({ state: 'visible' });
     assert.match(await page.locator('#moneyRecoveryTitle').textContent(), /490/u);
+    await page.locator('[data-view="categories"]').click();
+    assert.match(await page.locator('#categoryQualityKpis').textContent(), /0\s*решений запомнено/u, 'возврат не должен считаться ручной категорией');
+    await page.locator('[data-view="analytics"]').click();
 
     const interruptedJobId = 'smoke-interrupted';
     await worker.evaluate(async ({ jobId }) => {
@@ -284,6 +295,21 @@ async function main() {
     assert.equal(await page.locator('#skipLink').getAttribute('href'), '#categoriesView');
     await page.keyboard.press('Home');
     assert.equal(await page.locator('[data-view="analytics"]').getAttribute('aria-selected'), 'true');
+
+    for (const [view, panel] of [
+      ['analytics', '#analyticsView'],
+      ['categories', '#categoriesView'],
+      ['control', '#controlView'],
+      ['data', '#dataView']
+    ]) {
+      await page.locator(`[data-view="${view}"]`).click();
+      const width = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
+      assert.ok(width.document <= width.viewport, `${view}: горизонтальное переполнение ${JSON.stringify(width)}`);
+      const box = await page.locator(panel).boundingBox();
+      assert.equal(withinViewport(box, { width: 390, height: 844 }), true, `${panel} выходит за ширину экрана`);
+      await page.screenshot({ path: path.join(outputDir, `${view}-mobile.png`), fullPage: true });
+    }
+    await page.locator('[data-view="analytics"]').click();
 
     const permissionPatched = await page.evaluate(() => {
       try {

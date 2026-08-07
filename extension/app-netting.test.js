@@ -124,6 +124,28 @@ const preservedProvidedTobacco = JSON.parse(JSON.stringify(context.prepareSource
 })));
 assert.equal(preservedProvidedTobacco.category, 'Продукты');
 assert.equal(preservedProvidedTobacco.base_category, 'Продукты');
+const refreshedCollectedCategory = JSON.parse(JSON.stringify(context.prepareSourceRow({
+  source: 'ozon',
+  receipt_url: 'https://www.ozon.ru/receipt?id=legacy-category',
+  raw_title: 'Заказ № LEGACY-CATEGORY',
+  title: 'POD система Vaporesso XROS',
+  base_category: 'Продукты',
+  category: 'Продукты',
+  category_origin: 'provided'
+})));
+assert.equal(refreshedCollectedCategory.category, 'Табак и никотин');
+assert.equal(refreshedCollectedCategory.base_category, '', 'категория старого сборщика должна пересчитаться');
+const preservedLegacyManualCategory = context.prepareSourceRow({
+  source: 'ozon',
+  receipt_url: 'https://www.ozon.ru/receipt?id=manual-category',
+  raw_title: 'Заказ № MANUAL-CATEGORY',
+  title: 'POD система Vaporesso XROS',
+  base_category: 'Моя категория',
+  category: 'Моя категория',
+  category_origin: 'manual'
+});
+assert.equal(preservedLegacyManualCategory.base_category, 'Моя категория', 'явная старая ручная категория должна сохраниться');
+assert.equal(preservedLegacyManualCategory.category_origin, 'manual');
 context.categoryQualityFixture = [
   { ...ambiguousCategory, amount: '500.00' },
   { ...confidentCategory, amount: '300.00' },
@@ -138,6 +160,27 @@ assert.deepEqual(categoryQuality, {
   confident: 1,
   coverage: 67
 });
+assert.equal(context.categoryQuality([
+  { ...confidentCategory, source: 'ozon', title: 'Одинаковый товар', category_origin: 'manual', amount: '100.00' },
+  { ...confidentCategory, source: 'ozon', title: 'Одинаковый товар', category_origin: 'manual', amount: '100.00' },
+  { ...confidentCategory, source: 'ozon', title: 'Другой товар', category_origin: 'rule', category_rule_id: 'rule-1', amount: '100.00' },
+  { ...confidentCategory, source: 'wildberries', title: 'Ещё товар', category_origin: 'rule', category_rule_id: 'rule-1', amount: '100.00' }
+]).confirmed, 2, 'счётчик показывает решения, а не число затронутых строк');
+assert.equal(context.categoryReviewGroupCount([
+  { ...ambiguousCategory, source: 'ozon', title: 'Один спорный товар', amount: '100.00' },
+  { ...ambiguousCategory, source: 'ozon', title: 'Один спорный товар', amount: '100.00' },
+  { ...ambiguousCategory, source: 'wildberries', title: 'Один спорный товар', amount: '100.00' }
+]), 2, 'счётчик вкладки показывает решения по группам, а не число строк');
+assert.deepEqual(JSON.parse(JSON.stringify(context.sparseOperationOverride({
+  category: 'Продукты', profile: 'personal', note: '', excluded: false
+}, {
+  category: 'Продукты', profile: 'personal', note: '', excluded: false
+}))), {}, 'сохранение возврата не должно создавать фиктивную ручную правку');
+assert.deepEqual(JSON.parse(JSON.stringify(context.sparseOperationOverride({
+  category: 'Продукты', profile: 'personal', note: '', excluded: false
+}, {
+  category: 'Дом', profile: 'personal', note: '', excluded: false
+}))), { category: 'Дом' });
 
 context.legacyBudgetFixture = { 'Дом': 15000, 'Книги': 3000 };
 vm.runInContext('legacyBudgets = legacyBudgetFixture', context);
@@ -287,6 +330,45 @@ assert.equal(known.ozon.slice(0, 2).join(','), 'ozon-new,https://ozon-new');
 assert.equal(known.wildberries.join(','), 'wb-1');
 assert.equal(known.yandexOrders.join(','), '123');
 assert.equal(context.hasKnownReceipts(known), true);
+const normalizedLegacyReport = context.normalizeCollectionReport({
+  sources: ['ozon'],
+  warnings: [
+    'Ozon: агрегатная предоплата сверена с полным расчетом; скорректировано 1, погашено 2',
+    'Ozon: состав не распознан у чеков 1; сохранены только итоговые суммы'
+  ]
+});
+assert.equal(normalizedLegacyReport.warnings.length, 1, 'успешная сверка не является предупреждением');
+assert.equal(context.warningCountAfterNormalization(2, {
+  warnings: ['Ozon: агрегатная предоплата сверена с полным расчетом', 'Ozon: состав не распознан']
+}, normalizedLegacyReport), 1);
+const legacyOzonDuplicates = Array.from({ length: 3 }, (_, index) => ([
+  {
+    date: `2026-01-0${index + 1}`,
+    source: 'ozon',
+    raw_title: `Заказ № ORDER-${index}`,
+    title: `Товар ${index}`,
+    amount: '100.00',
+    receipt_url: `https://www.ozon.ru/receipt?id=pre-${index}`,
+    parse_quality: 'complete'
+  },
+  {
+    date: `2026-01-1${index + 1}`,
+    source: 'ozon',
+    raw_title: `Заказ   №   ORDER-${index}`,
+    title: `Товар ${index}`,
+    amount: '100.00',
+    receipt_url: `https://www.ozon.ru/receipt?id=full-${index}`,
+    parse_quality: 'complete'
+  }
+])).flat();
+assert.equal(context.legacyOzonSettlementDuplicateCount(legacyOzonDuplicates), 3);
+assert.equal(context.needsOzonSettlementRepair(legacyOzonDuplicates), true);
+assert.deepEqual(JSON.parse(JSON.stringify(context.collectKnownReceipts(legacyOzonDuplicates).ozon)), [], 'ремонт требует полного Ozon-сканирования');
+assert.equal(context.needsOzonSettlementRepair(legacyOzonDuplicates.slice(0, 1)), false, 'один чек не требует пересбора');
+assert.equal(context.needsOzonSettlementRepair(legacyOzonDuplicates.slice(0, 2).map((row) => ({
+  ...row,
+  ozon_settlement_kind: 'full'
+}))), false, 'новые уже сверенные чеки не должны просить повторный пересбор');
 assert.deepEqual(
   JSON.parse(JSON.stringify(context.mergeCollectedRows([{ title: 'CSV без id' }], [{ title: 'Собрано' }]))),
   [{ title: 'CSV без id' }, { title: 'Собрано' }]

@@ -502,12 +502,13 @@ function normalizeSettings(value) {
   if (raw.overrides && typeof raw.overrides === 'object' && !Array.isArray(raw.overrides)) {
     for (const [rowId, patch] of Object.entries(raw.overrides)) {
       if (!rowId || !patch || typeof patch !== 'object' || Array.isArray(patch)) continue;
-      overrides[rowId] = {
+      const normalizedPatch = {
         ...(Object.prototype.hasOwnProperty.call(patch, 'category') ? { category: String(patch.category || '').trim() } : {}),
         ...(Object.prototype.hasOwnProperty.call(patch, 'profile') ? { profile: String(patch.profile || '').trim() } : {}),
         ...(Object.prototype.hasOwnProperty.call(patch, 'note') ? { note: String(patch.note || '').trim() } : {}),
         ...(Object.prototype.hasOwnProperty.call(patch, 'excluded') ? { excluded: patch.excluded === true } : {})
       };
+      if (Object.keys(normalizedPatch).length) overrides[rowId] = normalizedPatch;
     }
   }
 
@@ -825,6 +826,9 @@ function storeLastRun() {
 }
 
 function legacyCategoryRequiresRefresh(row, category) {
+  const collectorManaged = ['ozon', 'wildberries', 'yandex'].includes(String(row?.source || ''))
+    && Boolean(row?.receipt_url || row?.raw_title || row?.parse_quality);
+  if (category && collectorManaged && !['manual', 'rule'].includes(row?.category_origin)) return true;
   if (Object.prototype.hasOwnProperty.call(row || {}, 'base_category') || row?.category_origin) return false;
   const title = normalizeKeyText(`${row?.title || ''} ${row?.raw_title || ''}`);
   if (!title) return false;
@@ -850,7 +854,19 @@ function prepareSourceRow(row) {
     : String(row?.category || '').trim();
   if (legacyCategoryRequiresRefresh(row, baseCategory)) baseCategory = '';
   const normalized = withCategory(withOperation({ ...row, category: baseCategory }));
-  return { ...normalized, base_category: baseCategory };
+  const preservedOrigin = baseCategory && ['manual', 'rule'].includes(row?.category_origin)
+    ? row.category_origin
+    : '';
+  return {
+    ...normalized,
+    base_category: baseCategory,
+    ...(preservedOrigin ? {
+      category_origin: preservedOrigin,
+      category_reason: String(row.category_reason || (preservedOrigin === 'manual' ? 'Подтверждено вручную' : 'Правило категории')),
+      category_needs_review: false,
+      category_rule_id: String(row.category_rule_id || '')
+    } : {})
+  };
 }
 
 function applyAppPreferences() {
@@ -865,6 +881,48 @@ function applyAppPreferences() {
     excluded: row.excluded === true,
     note: String(row.note || '')
   }));
+}
+
+function sparseOperationOverride(baseRow, desired) {
+  const patch = {};
+  const category = String(desired?.category || '').trim();
+  const profile = String(desired?.profile || '').trim();
+  const note = String(desired?.note || '').trim();
+  const excluded = desired?.excluded === true;
+  if (category !== String(baseRow?.category || '').trim()) patch.category = category;
+  if (profile !== String(baseRow?.profile || '').trim()) patch.profile = profile;
+  if (note !== String(baseRow?.note || '').trim()) patch.note = note;
+  if (excluded !== (baseRow?.excluded === true)) patch.excluded = excluded;
+  return patch;
+}
+
+function rowBeforeManualOverride(sourceRow) {
+  const ruled = preferences.applyKeywordRules(sourceRow, appSettings.customRules);
+  const fallbackProfile = appSettings.profiles[0]?.id || 'personal';
+  const profileIds = new Set(appSettings.profiles.map((profile) => profile.id));
+  return {
+    ...ruled,
+    profile: profileIds.has(ruled.profile) ? ruled.profile : fallbackProfile,
+    excluded: ruled.excluded === true,
+    note: String(ruled.note || '')
+  };
+}
+
+function pruneNoopOperationOverrides() {
+  if (!Object.keys(appSettings.overrides).length || !sourceRows.length) return 0;
+  const byId = new Map(sourceRows.map((row) => [row.rowId, rowBeforeManualOverride(row)]));
+  let removed = 0;
+  for (const [rowId, desired] of Object.entries(appSettings.overrides)) {
+    const baseRow = byId.get(rowId);
+    if (!baseRow) continue;
+    const patch = sparseOperationOverride(baseRow, { ...baseRow, ...desired });
+    if (Object.keys(patch).length) appSettings.overrides[rowId] = patch;
+    else {
+      delete appSettings.overrides[rowId];
+      removed += 1;
+    }
+  }
+  return removed;
 }
 
 function applyStoredProfileSelections() {
@@ -973,8 +1031,8 @@ function restoreCapturedState(state) {
     hasCollected = Boolean(metadata.hasCollected);
     lastRunAt = metadata.lastRunAt ? new Date(metadata.lastRunAt) : null;
     lastRunKind = metadata.lastRunKind || '';
-    lastWarningCount = Number(metadata.warningCount) || 0;
     lastCollectionReport = normalizeCollectionReport(metadata.collection);
+    lastWarningCount = warningCountAfterNormalization(metadata.warningCount, metadata.collection, lastCollectionReport);
     demoMode = Boolean(state.demoMode);
     runDetailsOpen = Boolean(state.runDetailsOpen);
     updateResult(state.rows || [], {});
@@ -995,8 +1053,8 @@ function restoreSnapshot(snapshot, statusPrefix = 'Открыт сохранён
     lastRunAt = metadata.lastRunAt ? new Date(metadata.lastRunAt) : new Date(snapshot.createdAt || Date.now());
     if (!Number.isFinite(lastRunAt.getTime())) lastRunAt = new Date();
     lastRunKind = metadata.lastRunKind || 'Последний отчёт';
-    lastWarningCount = Number(metadata.warningCount) || 0;
     lastCollectionReport = normalizeCollectionReport(metadata.collection);
+    lastWarningCount = warningCountAfterNormalization(metadata.warningCount, metadata.collection, lastCollectionReport);
     runDetailsOpen = false;
     updateResult(snapshot.rows || [], {});
     renderQualitySummary(rows, lastCollectionReport.stats, {}, lastCollectionReport.warnings);
@@ -1276,7 +1334,7 @@ function renderRunSummary() {
   if (!show) return;
 
   const total = rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
-  const warnings = lastWarningCount ? ` · нужно проверить: ${lastWarningCount}` : '';
+  const warnings = lastWarningCount ? ` · предупреждений: ${lastWarningCount}` : '';
   els.runSummaryText.textContent = `${lastRunKind}: ${formatCount(rows.length, ['операция', 'операции', 'операций'])} · ${formatRub(total)}${warnings} · ${formatRunTime(lastRunAt)}`;
 }
 
@@ -1513,6 +1571,11 @@ function friendlyWarningText(value) {
   return text.length > 280 ? `${text.slice(0, 277)}…` : text;
 }
 
+function isCollectionCompletenessWarning(value) {
+  return /состав не распознан|без состава|не разобрано чеков|без сверки итога|не распознан итог|полнота состава не подтверждена/i
+    .test(String(value || ''));
+}
+
 function showWarnings(warnings = []) {
   const visibleWarnings = warnings.filter(Boolean).map(String);
   els.warningBanner.hidden = visibleWarnings.length === 0;
@@ -1522,7 +1585,10 @@ function showWarnings(warnings = []) {
     return;
   }
   const accessDenied = visibleWarnings.some((warning) => /не предоставлен доступ|permission/i.test(warning));
-  els.warningTitle.textContent = accessDenied ? 'Нужен доступ браузера' : 'Не всё получилось';
+  const completenessOnly = visibleWarnings.every(isCollectionCompletenessWarning);
+  els.warningTitle.textContent = accessDenied
+    ? 'Нужен доступ браузера'
+    : completenessOnly ? 'Данные собраны с ограничениями' : 'Не всё получилось';
   els.warningText.textContent = [...new Set(visibleWarnings.map(friendlyWarningText))].join(' ');
 }
 
@@ -1611,17 +1677,28 @@ function normalizeCollectionReport(value) {
   const warnings = (Array.isArray(report.warnings) ? report.warnings : [])
     .map(String)
     .filter(Boolean)
+    .filter((warning) => !/агрегатная предоплата сверена с полным расч[её]том/i.test(warning))
     .slice(0, 20);
   return { sources, stats, warnings };
+}
+
+function warningCountAfterNormalization(storedCount, rawCollection, normalizedCollection) {
+  const count = Math.max(0, Number(storedCount) || 0);
+  const rawWarnings = Array.isArray(rawCollection?.warnings) ? rawCollection.warnings.filter(Boolean).length : 0;
+  const normalizedWarnings = Array.isArray(normalizedCollection?.warnings) ? normalizedCollection.warnings.length : rawWarnings;
+  return Math.max(0, count - Math.max(0, rawWarnings - normalizedWarnings));
 }
 
 function restoreSourceStatusesFromReport() {
   const report = normalizeCollectionReport(lastCollectionReport);
   collectStatuses = {};
   for (const source of report.sources) {
-    const warning = report.warnings.find((item) => sourceFromProgress(item) === source);
+    const sourceWarnings = report.warnings.filter((item) => sourceFromProgress(item) === source);
+    const warning = sourceWarnings.find((item) => !isCollectionCompletenessWarning(item));
+    const incomplete = sourceWarnings.find(isCollectionCompletenessWarning);
     const diagnostic = sourceDiagnostic(source, report.stats);
     if (warning) collectStatuses[source] = { state: 'error', label: 'ошибка', title: warning };
+    else if (incomplete) collectStatuses[source] = { state: 'warning', label: 'есть пропуски', title: incomplete };
     else if (diagnostic) collectStatuses[source] = {
       state: diagnostic.warning ? 'warning' : 'done',
       label: diagnostic.label,
@@ -1713,6 +1790,31 @@ function dedupeRows(records) {
     : { rows: records, duplicates: 0 };
 }
 
+function ozonOrderIdFromRow(row) {
+  return String(row?.raw_title || '').match(/Заказ\s*№\s*(\S+)/iu)?.[1] || '';
+}
+
+function legacyOzonSettlementDuplicateCount(records) {
+  const signatures = new Map();
+  for (const row of records || []) {
+    if (row?.source !== 'ozon' || row?.ozon_settlement_kind || rowAmount(row) <= 0 || isFallbackCollectedRow(row)) continue;
+    const orderId = ozonOrderIdFromRow(row);
+    const receipt = String(row.receipt_url || row.marketplace_id || '').trim();
+    const title = normalizeKeyText(row.title);
+    const amount = Math.round(Math.abs(rowAmount(row)) * 100);
+    if (!orderId || !receipt || !title || !amount) continue;
+    const signature = `${orderId}\u0001${title}\u0001${amount}`;
+    const receipts = signatures.get(signature) || new Set();
+    receipts.add(receipt);
+    signatures.set(signature, receipts);
+  }
+  return [...signatures.values()].filter((receipts) => receipts.size > 1).length;
+}
+
+function needsOzonSettlementRepair(records) {
+  return legacyOzonSettlementDuplicateCount(records) > 0;
+}
+
 function collectKnownReceipts(records) {
   const result = {
     ozon: [],
@@ -1728,10 +1830,12 @@ function collectKnownReceipts(records) {
     result[bucket].push(key);
   }
 
+  const forceFullOzonScan = needsOzonSettlementRepair(records);
   const newestFirst = [...records].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   for (const row of newestFirst) {
     const source = row.source;
     if (source === 'ozon' || source === 'wildberries') {
+      if (source === 'ozon' && forceFullOzonScan) continue;
       add(source, row.marketplace_id);
       add(source, row.receipt_url);
     } else if (source === 'yandex') {
@@ -3153,7 +3257,10 @@ function renderCategoryRules() {
 function categoryQuality(records = rows) {
   const relevant = records.filter((row) => row.excluded !== true && !isServiceRow(row));
   const reviewRows = relevant.filter((row) => row.category_needs_review === true || !row.category || row.category === 'unknown');
-  const confirmedRows = relevant.filter((row) => ['manual', 'rule', 'provided'].includes(row.category_origin));
+  const confirmedRows = relevant.filter((row) => ['manual', 'rule'].includes(row.category_origin));
+  const confirmedDecisions = new Set(confirmedRows.map((row) => row.category_origin === 'rule'
+    ? `rule\u0001${row.category_rule_id || row.category_reason || row.category}`
+    : `manual\u0001${row.source}\u0001${normalizeKeyText(row.title)}\u0001${row.category}`));
   const reviewSet = new Set(reviewRows);
   const confirmedSet = new Set(confirmedRows);
   const confidentRows = relevant.filter((row) => !reviewSet.has(row) && !confirmedSet.has(row));
@@ -3162,10 +3269,15 @@ function categoryQuality(records = rows) {
     total: relevant.length,
     reviewRows,
     reviewAmount: amount(reviewRows),
-    confirmed: confirmedRows.length,
+    confirmed: confirmedDecisions.size,
     confident: confidentRows.length,
     coverage: relevant.length ? Math.round((relevant.length - reviewRows.length) / relevant.length * 100) : 0
   };
+}
+
+function categoryReviewGroupCount(records = rows) {
+  const quality = categoryQuality(records);
+  return new Set(quality.reviewRows.map((row) => `${row.source}\u0001${normalizeKeyText(row.title)}`)).size;
 }
 
 function confidenceWords(value) {
@@ -3223,9 +3335,10 @@ function applyCategoryReview(entry, category, remember) {
 
 function renderCategoryReview() {
   const quality = categoryQuality(rows);
+  const pendingGroupCount = categoryReviewGroupCount(rows);
   clearNode(els.categoryQualityKpis);
   for (const [value, label, kind] of [
-    [`${quality.coverage}%`, 'покупок уже разобраны', quality.coverage >= 95 ? 'ok' : 'warning'],
+    [`${quality.coverage}%`, 'покупок уже разобрано', quality.coverage >= 95 ? 'ok' : 'warning'],
     [String(quality.reviewRows.length), 'покупок ждут решения', quality.reviewRows.length ? 'warning' : 'ok'],
     [formatRub(quality.reviewAmount), 'уже учтено, но категория примерная', quality.reviewAmount ? 'warning' : 'ok'],
     [String(quality.confirmed), 'решений запомнено', '']
@@ -3240,8 +3353,8 @@ function renderCategoryReview() {
     els.categoryQualityKpis.appendChild(card);
   }
 
-  els.categoryReviewBadge.hidden = quality.reviewRows.length === 0;
-  els.categoryReviewBadge.textContent = String(quality.reviewRows.length);
+  els.categoryReviewBadge.hidden = pendingGroupCount === 0;
+  els.categoryReviewBadge.textContent = String(pendingGroupCount);
   els.reviewAllCategories.textContent = categoryReviewShowAll ? 'Только ожидающие решения' : 'Показать уже разобранные';
 
   const entries = categoryReviewEntries();
@@ -3409,15 +3522,41 @@ function openControlSection(element) {
 function homeGuideTasks(refundResult = null) {
   const tasks = [];
   const warnings = (lastCollectionReport.warnings || []).filter(Boolean);
-  if (warnings.length) {
-    const source = warnings.map(sourceFromProgress).find(Boolean) || '';
+  const ozonDuplicateGroups = legacyOzonSettlementDuplicateCount(sourceRows);
+  if (ozonDuplicateGroups > 0) {
+    tasks.push({
+      priority: 110,
+      kind: 'danger',
+      title: 'Пересобрать Ozon без двойного счёта',
+      detail: `В старых данных найдены повторные расчёты по ${formatCount(ozonDuplicateGroups, ['позиции', 'позициям', 'позициям'])}. Полный пересбор сверит предоплату с финальными чеками и заменит только данные Ozon.`,
+      button: 'Пересобрать Ozon',
+      action: () => collectOnly('ozon')
+    });
+  }
+
+  const retryWarning = warnings.find((warning) => !isCollectionCompletenessWarning(warning));
+  if (retryWarning) {
+    const source = sourceFromProgress(retryWarning);
     tasks.push({
       priority: 100,
       kind: 'danger',
       title: source ? `Повторить ${sourceLabels[source] || source}` : 'Проверить последний сбор',
-      detail: friendlyWarningText(warnings[0]),
+      detail: friendlyWarningText(retryWarning),
       button: source ? 'Повторить магазин' : 'Посмотреть причину',
       action: () => (source ? collectOnly(source) : openCollectionDetails())
+    });
+  }
+
+  const completenessWarning = warnings.find(isCollectionCompletenessWarning);
+  if (completenessWarning) {
+    const source = sourceFromProgress(completenessWarning);
+    tasks.push({
+      priority: 60,
+      kind: '',
+      title: source ? `Проверить полноту ${sourceLabels[source] || source}` : 'Проверить полноту данных',
+      detail: friendlyWarningText(completenessWarning),
+      button: 'Посмотреть детали',
+      action: openCollectionDetails
     });
   }
 
@@ -3682,16 +3821,20 @@ function applyBulkOperation(patch, reason) {
   if (!selectedOperationRowIds.size || collectionInProgress || databaseMutationInProgress) return;
   let changed = 0;
   const rowById = new Map(rows.map((row) => [row.rowId, row]));
+  const sourceById = new Map(sourceRows.map((row) => [row.rowId, row]));
   for (const rowId of selectedOperationRowIds) {
     const row = rowById.get(rowId);
-    if (!row) continue;
+    const sourceRow = sourceById.get(rowId);
+    if (!row || !sourceRow) continue;
     const current = appSettings.overrides[rowId] || {};
-    appSettings.overrides[rowId] = {
+    const override = sparseOperationOverride(rowBeforeManualOverride(sourceRow), {
       category: Object.prototype.hasOwnProperty.call(patch, 'category') ? patch.category : (current.category || row.category),
       profile: Object.prototype.hasOwnProperty.call(patch, 'profile') ? patch.profile : (current.profile || row.profile),
       note: Object.prototype.hasOwnProperty.call(patch, 'note') ? patch.note : (current.note || row.note || ''),
       excluded: Object.prototype.hasOwnProperty.call(patch, 'excluded') ? patch.excluded : (current.excluded ?? row.excluded === true)
-    };
+    });
+    if (Object.keys(override).length) appSettings.overrides[rowId] = override;
+    else delete appSettings.overrides[rowId];
     changed += 1;
   }
   selectedOperationRowIds.clear();
@@ -3966,12 +4109,14 @@ function saveOperationEdit() {
   }
   els.operationDocumentUrl.setCustomValidity('');
   const category = String(els.operationCategoryInput.value || els.operationCategorySelect.value || row.category || '').trim();
-  appSettings.overrides[row.rowId] = {
+  const override = sparseOperationOverride(rowBeforeManualOverride(sourceRow), {
     category,
     profile: els.operationProfileSelect.value || appSettings.profiles[0].id,
     note: els.operationNote.value.trim(),
     excluded: els.operationExcluded.checked
-  };
+  });
+  if (Object.keys(override).length) appSettings.overrides[row.rowId] = override;
+  else delete appSettings.overrides[row.rowId];
 
   const existingClaim = activeClaimForRow(row.rowId);
   if (els.markRefundClaim.checked && !existingClaim && !isRefundRow(row)) {
@@ -4794,6 +4939,7 @@ function showDemo() {
 }
 
 function hideOnboardingForSession() {
+  if (els.onboardingPanel.contains(document.activeElement)) document.activeElement?.blur?.();
   els.onboardingPanel.hidden = true;
   document.body.classList.remove('first-run');
 }
@@ -5237,6 +5383,7 @@ function updateResult(records, stats = {}) {
   };
   sourceRows = preferences.withStableRowIds(deduped.rows)
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  pruneNoopOperationOverrides();
   if (!sourceRows.length) setAnalyticsDetailsExpanded(false);
   applyAppPreferences();
   document.body.classList.toggle('has-data', sourceRows.length > 0);
@@ -5479,9 +5626,12 @@ async function collect() {
       for (const warning of warnings) appendLog(`Предупреждение: ${warning}`);
       for (const source of completedSources) {
         if (collectStatuses[source]?.state === 'error') continue;
-        const failed = warnings.find((warning) => sourceFromProgress(warning) === source);
+        const sourceWarnings = warnings.filter((warning) => sourceFromProgress(warning) === source);
+        const failed = sourceWarnings.find((warning) => !isCollectionCompletenessWarning(warning));
+        const incomplete = sourceWarnings.find(isCollectionCompletenessWarning);
         const diagnostic = sourceDiagnostic(source, response.stats || {});
         if (failed) setCollectStatus(source, 'error', 'ошибка', failed);
+        else if (incomplete) setCollectStatus(source, 'warning', 'есть пропуски', incomplete);
         else if (diagnostic) setCollectStatus(source, diagnostic.warning ? 'warning' : 'done', diagnostic.label, diagnostic.title);
         else setCollectStatus(source, 'done', 'готово');
       }

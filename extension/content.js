@@ -436,7 +436,7 @@
   }
 
   function ozonOrderKey(row) {
-    const rawTitleMatch = String(row?.raw_title || '').match(/Заказ №(\S+)/);
+    const rawTitleMatch = String(row?.raw_title || '').match(/Заказ\s*№\s*(\S+)/iu);
     if (rawTitleMatch) return rawTitleMatch[1];
     const receiptId = String(row?.receipt_url || '').match(/[?&]id=([^&]+)/)?.[1] || row?.marketplace_id || '';
     const idPrefixMatch = String(receiptId).match(/^(.+?)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:-\d+-\d+)?$/i);
@@ -463,9 +463,12 @@
 
   function normalizeOzonOutputRow(row) {
     const { __ozonSettlementKind, ...outputRow } = row;
-    return isOzonDeliveryTitle(outputRow.title) && outputRow.title !== 'Доставка'
+    const normalized = isOzonDeliveryTitle(outputRow.title) && outputRow.title !== 'Доставка'
       ? { ...outputRow, title: 'Доставка' }
       : outputRow;
+    return __ozonSettlementKind
+      ? { ...normalized, ozon_settlement_kind: __ozonSettlementKind }
+      : normalized;
   }
 
   function centsToAmount(cents) {

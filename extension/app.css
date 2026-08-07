@@ -80,7 +80,7 @@ body {
   transition: transform 0.16s ease;
 }
 
-.skip-link:focus {
+.skip-link:focus-visible {
   outline: 3px solid var(--ring);
   outline-offset: 2px;
   transform: translateY(0);
@@ -3173,6 +3173,26 @@ button.dialog-close:hover:not(:disabled) {
     padding: 18px;
   }
 
+  .view-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+  }
+
+  .tab-button {
+    min-width: 0;
+    padding: 8px 3px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .tab-badge {
+    min-width: 16px;
+    height: 16px;
+    margin-left: 2px;
+    font-size: 10px;
+  }
+
   .run-summary {
     align-items: stretch;
   }
@@ -3214,6 +3234,7 @@ button.dialog-close:hover:not(:disabled) {
   .money-recovery,
   .control-titlebar,
   .category-review-titlebar,
+  .data-titlebar,
   .category-review-toolbar,
   .override-toolbar,
   .category-review-controls {
@@ -3224,6 +3245,7 @@ button.dialog-close:hover:not(:disabled) {
   .report-trust button,
   .money-recovery button,
   .category-review-titlebar button,
+  .data-titlebar > button,
   .category-review-toolbar input,
   .override-toolbar input,
   .category-review-controls .select-control,

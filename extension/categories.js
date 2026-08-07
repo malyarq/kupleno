@@ -25,7 +25,8 @@
       'рыб', 'икра', 'яйц', 'орех', 'сухофрукт', 'оливков', 'подсолнечн', 'соус', 'пюре',
       'банан', 'сладост', 'пакет майка ozon fresh', 'ozon fresh', 'пакеты фасовочные',
       'для заморозки', 'пищевые', 'зефир', 'чипсы',
-      'мармелад', 'батон', 'филе', 'чиабатта', 'пита', 'говядиной', 'мороженое',
+      'мармелад', 'батон', 'филе', 'чиабатта', 'пита', 'говядиной', 'говяжий',
+      'свинина', 'баранина', 'фарш', 'мясо', 'куриный', 'индейка', 'мороженое',
       'коин с черникой', 'шоколадное яйцо', 'пиво', 'вино', 'сидр', 'шампанск',
       'водка', 'коньяк', 'виски', 'ром', 'алкоголь',
       'пончик', 'снеки', 'попкорн', 'энергетический напиток', 'псиллиум',
@@ -33,7 +34,8 @@
       'wildberries пакет', 'пакет майка пнд', 'пакет металлоцен', 'пакет 22х32',
       'ореховая паста', 'без сахара', 'настойки', 'смесь для глинтвейна',
       'глинтвейна', 'орехов', 'миндаль', 'фисташ', 'кешью',
-      'кофейный', 'maccoffee', 'подарочный набор чая', 'набор чая'
+      'кофейный', 'maccoffee', 'подарочный набор чая', 'набор чая',
+      'ветчина', 'десерт', 'пирожное', 'пудинг', 'чизкейк', 'нарезка'
     ]],
     ['Табак и никотин', 8, [
       'табак', 'сигарет', 'pod система', 'pod-система', 'vaporesso', 'xros',
@@ -104,7 +106,8 @@
       'костыль', 'трость', 'грелка', 'медицинский', 'беруши', 'пробиотики',
       'мультивитамин', 'пиколинат хрома', 'для иммунитета', 'vitamin d',
       'витамин d', 'витамин d3', 'd 3', 'd3', 'sgels', 'маска для сна',
-      'повязка на глаза', 'корректор осанки', 'корсет для спины'
+      'повязка на глаза', 'корректор осанки', 'корсет для спины',
+      'магний', 'железо', 'цинк', 'омега 3', 'глицинат', 'бисглицинат'
     ]],
     ['Одежда', 6, [
       'футболк', 'рубашк', 'джинс', 'брюк', 'штан', 'плать', 'юбк', 'куртк', 'пальто',
@@ -216,7 +219,8 @@
       'xbox series', 'док станцией', 'накопитель ssd', 'процессор amd',
       'amd ryzen', 'ryzen', 'am5', 'блок питания', 'atx3', 'для компьютера',
       'воздуходувка электрическая', 'чехол для realme', 'realme',
-      'адресная лента', 'ws2812b'
+      'адресная лента', 'ws2812b', 'звуковая карта', 'аудиоинтерфейс',
+      'focusrite', 'scarlett'
     ]],
     ['Бытовая техника', 8, [
       'увлажнитель воздуха', 'электрический чайник', 'аэрогриль', 'мини-мойк',
@@ -264,7 +268,8 @@
       'форма для вырубки теста', 'вырубки теста', 'бумага пищевая',
       'фольга пищевая', 'пищевая фольга', 'песочная картина',
       'песчаная рамка', 'домашнего декора', 'статуэтка', 'аромалампа',
-      'стабилизированным мхом', 'сувенир маме'
+      'стабилизированным мхом', 'сувенир маме', 'сушилка для посуды',
+      'контейнер для еды'
     ]],
     ['Ремонт', 7, [
       'шуруповерт', 'дрель', 'перфоратор', 'отвертк', 'саморез', 'дюбель', 'краска',
@@ -315,7 +320,8 @@
       'для мойки автомобиля', 'инструментов для сайлентблоков', 'сайлентблоков',
       'краска для двигателя', 'для двигателя', 'брелок автомобильный',
       'адаптер для щеток стеклоочистителя', 'подарочный набор автохимии',
-      'спортивный руль', 'руль дрифт', 'omp corsica', 'tuning shop'
+      'спортивный руль', 'руль дрифт', 'omp corsica', 'tuning shop',
+      'автомагнитола', 'автозвук', 'автомобильный сабвуфер', 'автомобильный усилитель'
     ]],
     ['Спорт', 7, [
       'гантел', 'тренажер', 'эспандер', 'коврик для йоги', 'йога', 'фитнес', 'мяч',
@@ -372,6 +378,7 @@
     ['Бытовая техника', 11, ['чайник электрический']],
     ['Хобби и творчество', 11, ['пластилин для лепки', 'пластилин для творчества', 'мыло для лепки']],
     ['Аксессуары', 12, ['чехол для электронной книги', 'обложка для электронной книги', 'чехол для ридера']],
+    ['Авто', 13, ['автомагнитола', 'автозвук']],
     ['Цифровые покупки', 13, ['электронный ключ игры', 'ключ игры steam', 'steam для пк']],
     ['Канцтовары', 12, ['шариковая ручка', 'шариковые ручки', 'шариковых ручек']]
   ];
@@ -392,7 +399,8 @@
   const reviewOnlyTokens = new Set([
     'батарея', 'весы', 'вилка', 'игрушк', 'кабель', 'карта', 'кольцо', 'коробка',
     'лампа', 'маска', 'масло', 'мяч', 'набор', 'нож', 'органайзер', 'паста',
-    'папка', 'ручк', 'салфетки', 'столик', 'топ', 'триммер', 'фильтр', 'чехол', 'щетка'
+    'папка', 'ручк', 'салфетки', 'столик', 'топ', 'триммер', 'фильтр', 'чехол', 'щетка',
+    'шампур'
   ]);
   let remoteRules = [];
   let compiledRuleEntries = null;
@@ -436,6 +444,17 @@
   function scoreFor(weight, token) {
     const wordCount = normalize(token).split(' ').filter(Boolean).length;
     return weight + wordCount + (wordCount > 1 ? 3 : 0);
+  }
+
+  function evidenceTokensOverlap(left, right) {
+    const leftToken = normalize(left);
+    const rightToken = normalize(right);
+    if (!leftToken || !rightToken) return false;
+    if (!leftToken.includes(' ') && !rightToken.includes(' ')) {
+      return leftToken.startsWith(rightToken) || rightToken.startsWith(leftToken);
+    }
+    return ` ${leftToken} `.includes(` ${rightToken} `)
+      || ` ${rightToken} `.includes(` ${leftToken} `);
   }
 
   function ruleEntries() {
@@ -502,8 +521,15 @@
       if (!kind) continue;
       const evidence = { token: entry.token, kind, source: entry.source, score: entry.score };
       const candidate = byCategory.get(entry.category) || { category: entry.category, score: 0, evidence: [] };
-      candidate.score += evidence.score;
-      candidate.evidence.push(evidence);
+      const overlappingIndex = candidate.evidence.findIndex((item) => item.score > 0
+        && evidenceTokensOverlap(item.token, evidence.token));
+      if (overlappingIndex === -1) {
+        candidate.score += evidence.score;
+        candidate.evidence.push(evidence);
+      } else if (candidate.evidence[overlappingIndex].score < evidence.score) {
+        candidate.score += evidence.score - candidate.evidence[overlappingIndex].score;
+        candidate.evidence[overlappingIndex] = evidence;
+      }
       byCategory.set(entry.category, candidate);
     }
 
@@ -549,10 +575,11 @@
       && top.score < 12
       && reviewOnlyTokens.has(positiveEvidence[0].token)
       && !explicitLocalRule;
+    const strongPhrase = positiveEvidence.some((item) => item.kind === 'phrase' && item.score >= 11);
     const confidentlyAccepted = accepted
-      && confidence >= 0.64
+      && confidence >= 0.58
       && !weakSingleWord
-      && !(second && margin < 7);
+      && !(second && margin < 5 && !strongPhrase);
     const result = {
       category: confidentlyAccepted ? top.category : 'unknown',
       suggestedCategory: top.category,
