@@ -21,6 +21,10 @@ const els = {
   onboardingDemo: document.getElementById('onboardingDemo'),
   onboardingStart: document.getElementById('onboardingStart'),
   onboardingUpload: document.getElementById('onboardingUpload'),
+  demoBanner: document.getElementById('demoBanner'),
+  demoStart: document.getElementById('demoStart'),
+  demoUpload: document.getElementById('demoUpload'),
+  demoExit: document.getElementById('demoExit'),
   sourceOzon: document.getElementById('sourceOzon'),
   sourceOzonState: document.getElementById('sourceOzonState'),
   sourceWb: document.getElementById('sourceWb'),
@@ -365,7 +369,7 @@ let lastRunKind = '';
 let lastWarningCount = 0;
 let lastCollectionReport = { sources: [], stats: {}, warnings: [] };
 let detailShownCount = 60;
-let categoryReviewShownCount = 40;
+let categoryReviewShownCount = 5;
 let categoryReviewShowAll = false;
 let operationOverridesShownCount = 100;
 let currentReportText = '';
@@ -373,6 +377,7 @@ let selectedOperationRowId = '';
 const selectedOperationRowIds = new Set();
 let queuedCollectSources = null;
 let demoMode = false;
+let demoRestoreState = null;
 let persistenceQueue = Promise.resolve();
 let persistencePendingCount = 0;
 let automaticPersistenceSuppressionDepth = 0;
@@ -1104,6 +1109,8 @@ function resetLocalDataAfterClear(epoch, remote = false) {
   appSettings = normalizeSettings({});
   hasCollected = false;
   demoMode = false;
+  demoRestoreState = null;
+  setDemoUi(false);
   lastRunAt = null;
   lastRunKind = '';
   lastWarningCount = 0;
@@ -1168,6 +1175,7 @@ function applyTheme(theme, persist = true) {
 }
 
 function setActiveView(view) {
+  if (demoMode && view !== 'analytics') view = 'analytics';
   const hasMatchingTab = els.tabButtons.some((button) => button.dataset.view === view);
   for (const button of els.tabButtons) {
     const active = button.dataset.view === view;
@@ -1398,8 +1406,6 @@ function selectedCollectSources() {
 function setMutationControlsDisabled(disabled) {
   const effectiveDisabled = Boolean(disabled || storageConflict || persistencePendingCount > 0);
   const controls = [
-    els.homeGuidePrimary,
-    els.homeGuideSecondary,
     els.overallBudgetAmount,
     els.saveOverallBudget,
     els.budgetCategory,
@@ -1439,15 +1445,17 @@ function setMutationControlsDisabled(disabled) {
     els.bulkClear
   ];
   for (const control of controls) {
-    if (control) control.disabled = effectiveDisabled;
+    if (control) control.disabled = effectiveDisabled || demoMode;
   }
+  if (els.homeGuidePrimary) els.homeGuidePrimary.disabled = effectiveDisabled;
+  if (els.homeGuideSecondary) els.homeGuideSecondary.disabled = effectiveDisabled;
   if (els.onboardingStart) {
     els.onboardingStart.disabled = effectiveDisabled || selectedCollectSources().length === 0;
   }
   for (const control of document.querySelectorAll(
     '#detailRows .detail-edit, #detailRows .category-pill, #budgetBreakdown button, #refundClaims button, #dataHistoryList button, #categoryRuleList button, #operationOverridesList button, #controlView button, #controlView select'
   )) {
-    control.disabled = effectiveDisabled;
+    control.disabled = effectiveDisabled || demoMode;
   }
   if (!effectiveDisabled) renderProfiles();
 }
@@ -3283,8 +3291,8 @@ function categoryReviewGroupCount(records = rows) {
 function confidenceWords(value) {
   const confidence = Number(value) || 0;
   if (confidence >= 0.85) return 'похоже, всё верно';
-  if (confidence >= 0.65) return 'похоже, но лучше проверить';
-  return 'нужно ваше решение';
+  if (confidence >= 0.65) return 'при желании можно уточнить';
+  return 'категория приблизительная';
 }
 
 function categoryReviewEntries() {
@@ -3336,12 +3344,13 @@ function applyCategoryReview(entry, category, remember) {
 function renderCategoryReview() {
   const quality = categoryQuality(rows);
   const pendingGroupCount = categoryReviewGroupCount(rows);
+  const suggestedGroupCount = Math.min(5, pendingGroupCount);
   clearNode(els.categoryQualityKpis);
   for (const [value, label, kind] of [
-    [`${quality.coverage}%`, 'покупок уже разобрано', quality.coverage >= 95 ? 'ok' : 'warning'],
-    [String(quality.reviewRows.length), 'покупок ждут решения', quality.reviewRows.length ? 'warning' : 'ok'],
-    [formatRub(quality.reviewAmount), 'уже учтено, но категория примерная', quality.reviewAmount ? 'warning' : 'ok'],
-    [String(quality.confirmed), 'решений запомнено', '']
+    [`${quality.coverage}%`, 'определено автоматически', 'ok'],
+    [String(suggestedGroupCount), 'важных групп предложено', ''],
+    [formatRub(quality.reviewAmount), 'уже учтено в отчёте', ''],
+    [String(quality.confirmed), 'ваших правил и решений', '']
   ]) {
     const card = document.createElement('div');
     card.className = `category-quality-card ${kind}`.trim();
@@ -3353,14 +3362,16 @@ function renderCategoryReview() {
     els.categoryQualityKpis.appendChild(card);
   }
 
-  els.categoryReviewBadge.hidden = pendingGroupCount === 0;
-  els.categoryReviewBadge.textContent = String(pendingGroupCount);
-  els.reviewAllCategories.textContent = categoryReviewShowAll ? 'Только ожидающие решения' : 'Показать уже разобранные';
+  els.categoryReviewBadge.hidden = true;
+  els.categoryReviewBadge.textContent = '';
+  els.reviewAllCategories.textContent = categoryReviewShowAll ? 'Только категории для уточнения' : 'Посмотреть все категории';
 
   const entries = categoryReviewEntries();
   const shown = entries.slice(0, categoryReviewShownCount);
   els.categoryReviewSummary.textContent = entries.length
-    ? `${formatCount(entries.length, ['группа', 'группы', 'групп'])}${entries.length > shown.length ? ` · показано ${shown.length}` : ''}`
+    ? (entries.length > shown.length
+        ? `Показаны ${shown.length} самых заметных групп. Остальное можно не разбирать.`
+        : `${formatCount(entries.length, ['группа', 'группы', 'групп'])} — исправлять необязательно.`)
     : '';
   els.categoryReviewMore.hidden = entries.length <= shown.length;
   clearNode(els.categoryReviewList);
@@ -3386,7 +3397,7 @@ function renderCategoryReview() {
     const confidence = confidenceWords(entry.confidence);
     meta.textContent = `${formatCount(entry.rowIds.length, ['операция', 'операции', 'операций'])} · ${formatRub(entry.amount)} · ${confidence}`;
     const reason = document.createElement('small');
-    reason.textContent = entry.reason || 'Нужно выбрать категорию';
+    reason.textContent = entry.reason || 'Можно выбрать точнее';
     copy.append(title, meta, reason);
 
     const controls = document.createElement('div');
@@ -3416,7 +3427,7 @@ function renderCategoryReview() {
     rememberLabel.append(remember, document.createTextNode('Запомнить для похожих'));
     const apply = document.createElement('button');
     apply.type = 'button';
-    apply.textContent = entry.needsReview ? 'Подтвердить' : 'Изменить';
+    apply.textContent = 'Исправить';
     apply.disabled = !select.value;
     select.addEventListener('change', () => {
       apply.disabled = !select.value;
@@ -3435,23 +3446,10 @@ function renderReportTrust(records = rows) {
     return;
   }
   const audit = reportQuality.auditCollection(records, lastCollectionReport);
-  const needsAttention = audit.state === 'attention' || quality.reviewRows.length > 0 || lastWarningCount > 0;
+  const needsAttention = audit.state === 'attention' || lastWarningCount > 0;
   els.reportTrust.hidden = false;
   if (demoMode) {
-    els.reportTrust.classList.remove('warning');
-    els.reportTrust.classList.add('neutral');
-    els.reportTrustBadge.textContent = 'Вымышленный пример';
-    els.reportTrustTitle.textContent = 'Это демонстрация, а не ваши покупки';
-    els.reportTrustText.textContent = `полнота чеков не проверяется · показано ${formatCount(audit.rowCount, ['операция', 'операции', 'операций'])}`;
-    clearNode(els.reportTrustSources);
-    for (const source of audit.sources) {
-      const chip = document.createElement('span');
-      chip.className = 'report-source neutral';
-      chip.textContent = `${sourceLabels[source.source] || source.source} · пример`;
-      els.reportTrustSources.appendChild(chip);
-    }
-    els.openCollectionAudit.hidden = true;
-    els.openCategoryReview.hidden = true;
+    els.reportTrust.hidden = true;
     return;
   }
   els.reportTrust.classList.toggle('warning', needsAttention);
@@ -3464,7 +3462,7 @@ function renderReportTrust(records = rows) {
   } else if (audit.state === 'attention') {
     els.reportTrustTitle.textContent = 'Часть чеков собрана не полностью';
   } else if (quality.reviewRows.length) {
-    els.reportTrustTitle.textContent = `Суммы сверены, проверьте ${formatCount(quality.reviewRows.length, ['покупку', 'покупки', 'покупок'])}`;
+    els.reportTrustTitle.textContent = 'Чеки сверены, категории рассчитаны автоматически';
   } else {
     els.reportTrustTitle.textContent = 'Все найденные чеки прочитаны и сверены';
   }
@@ -3557,18 +3555,6 @@ function homeGuideTasks(refundResult = null) {
       detail: friendlyWarningText(completenessWarning),
       button: 'Посмотреть детали',
       action: openCollectionDetails
-    });
-  }
-
-  const quality = categoryQuality(rows);
-  if (quality.reviewRows.length) {
-    tasks.push({
-      priority: 90,
-      kind: 'warning',
-      title: `Проверить ${formatCount(quality.reviewRows.length, ['покупку', 'покупки', 'покупок'])}`,
-      detail: `MarketTrat не уверен, куда отнести ${formatRub(quality.reviewAmount)}. Суммы уже учтены, но разбивка по категориям пока примерная.`,
-      button: 'Проверить покупки',
-      action: () => setActiveView('categories')
     });
   }
 
@@ -3676,14 +3662,7 @@ function renderHomeGuide(refundResult = null) {
   els.homeGuide.hidden = rows.length === 0;
   if (!rows.length) return;
   if (demoMode) {
-    els.homeGuide.classList.remove('warning', 'danger');
-    els.homeGuideKicker.textContent = 'Пример готов';
-    els.homeGuideTitle.textContent = 'Вот так будет выглядеть ваш отчёт';
-    els.homeGuideText.textContent = 'Покупки здесь вымышленные. Посмотрите расходы и советы, а затем добавьте свою историю.';
-    els.homeGuidePrimary.textContent = 'Добавить мои покупки';
-    homeGuidePrimaryAction = () => collectOnly('');
-    els.homeGuideSecondary.textContent = 'Посмотреть советы';
-    homeGuideSecondaryAction = () => setActiveView('control');
+    els.homeGuide.hidden = true;
     clearNode(els.homeNextStepList);
     els.homeNextSteps.hidden = true;
     return;
@@ -4928,14 +4907,66 @@ function demoRows() {
 }
 
 function showDemo() {
+  if (demoMode) return;
+  demoRestoreState = captureAppState();
   demoMode = true;
   hasCollected = true;
+  setActiveView('analytics');
   updateResult(demoRows(), {});
   renderQualitySummary(rows, {}, {}, []);
   finishRun('Пример', 0);
+  setDemoUi(true);
   setStatus('Открыт пример. Это вымышленные покупки, они не сохранятся после закрытия страницы.', 1, 1);
   hideOnboardingForSession();
-  els.homeGuide.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  els.demoBanner.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function setDemoUi(active) {
+  const enabled = Boolean(active);
+  document.body.classList.toggle('demo-mode', enabled);
+  els.demoBanner.hidden = !enabled;
+  els.collect.disabled = enabled || collectionInProgress || databaseMutationInProgress;
+  els.uploadCsv.disabled = enabled || collectionInProgress || databaseMutationInProgress;
+  if (enabled) {
+    els.downloadCsv.disabled = true;
+    els.runDownloadCsv.disabled = true;
+  } else {
+    updateCsvButton();
+  }
+  setMutationControlsDisabled(false);
+}
+
+function exitDemo(next = '') {
+  if (!demoMode) return;
+  const restoreState = demoRestoreState;
+  demoRestoreState = null;
+  demoMode = false;
+  if (restoreState) restoreCapturedState(restoreState);
+  else {
+    hasCollected = false;
+    lastRunAt = null;
+    lastRunKind = '';
+    lastWarningCount = 0;
+    lastCollectionReport = { sources: [], stats: {}, warnings: [] };
+    updateResult([], {});
+  }
+  setDemoUi(false);
+  setActiveView('analytics');
+  if (!sourceRows.length) {
+    runDetailsOpen = true;
+    renderRunSummary();
+    els.onboardingPanel.hidden = false;
+    document.body.classList.add('first-run');
+  }
+  setStatus('Пример закрыт. Ваши данные не менялись.', 0, 1);
+  if (next === 'upload') {
+    els.uploadCsv.click();
+    return;
+  }
+  if (next === 'start') {
+    els.onboardingPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    requestAnimationFrame(() => els.onboardingStart.focus());
+  }
 }
 
 function hideOnboardingForSession() {
@@ -5775,16 +5806,16 @@ els.openCategoryReview.addEventListener('click', () => setActiveView('categories
 els.openCollectionAudit.addEventListener('click', openCollectionDetails);
 els.openMoneyRecovery.addEventListener('click', () => openControlSection(els.refundCenterList));
 els.categoryReviewSearch.addEventListener('input', () => {
-  categoryReviewShownCount = 40;
+  categoryReviewShownCount = 5;
   renderCategoryReview();
 });
 els.reviewAllCategories.addEventListener('click', () => {
   categoryReviewShowAll = !categoryReviewShowAll;
-  categoryReviewShownCount = 40;
+  categoryReviewShownCount = 5;
   renderCategoryReview();
 });
 els.categoryReviewMore.addEventListener('click', () => {
-  categoryReviewShownCount += 40;
+  categoryReviewShownCount += 5;
   renderCategoryReview();
 });
 els.operationOverridesSearch.addEventListener('input', () => {
@@ -6003,6 +6034,9 @@ els.deleteAllData.addEventListener('click', () => {
   deleteAllData().catch((error) => appendLog(`Ошибка удаления данных: ${error.message}`));
 });
 els.onboardingDemo.addEventListener('click', showDemo);
+els.demoStart.addEventListener('click', () => exitDemo('start'));
+els.demoUpload.addEventListener('click', () => exitDemo('upload'));
+els.demoExit.addEventListener('click', () => exitDemo());
 els.onboardingStart.addEventListener('click', () => {
   els.collect.click();
   requestAnimationFrame(() => els.runDetails.scrollIntoView({ behavior: 'smooth', block: 'start' }));

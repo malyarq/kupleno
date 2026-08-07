@@ -129,11 +129,15 @@ async function main() {
     await page.setViewportSize({ width: 1280, height: 720 });
 
     await page.locator('#onboardingDemo').click();
-    await page.locator('#homeGuide').waitFor({ state: 'visible' });
+    await page.locator('#demoBanner').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#onboardingPanel').isVisible(), false);
+    assert.equal(await page.locator('#demoBanner').isVisible(), true, 'пример должен быть явно помечен');
+    assert.equal(await page.locator('#homeGuide').isVisible(), false, 'пример не должен повторять одно объяснение несколькими карточками');
+    assert.equal(await page.locator('#reportTrust').isVisible(), false, 'примеру не нужен отдельный паспорт качества');
+    assert.equal(await page.locator('#downloadCsv').isDisabled(), true, 'пример нельзя выгрузить как реальные данные');
     assert.notEqual(await page.evaluate(() => document.activeElement?.id), 'skipLink', 'мышь не должна неожиданно показывать клавиатурную ссылку');
-    assert.match(await page.locator('#homeGuideTitle').textContent(), /так будет выглядеть ваш отчёт/u);
-    assert.equal(await page.locator('.view-tabs').isVisible(), true);
+    assert.match(await page.locator('#demoBannerTitle').textContent(), /нет ваших покупок/u);
+    assert.equal(await page.locator('.view-tabs').isVisible(), false, 'пример не должен вести в настройки и ручные правки');
     assert.equal(await page.locator('#activeFilters').isVisible(), false, 'настройки по умолчанию не должны занимать строку');
     assert.ok(await page.locator('#analyticsTotal').textContent());
     assert.equal(await page.locator('#categoryBreakdown').isVisible(), true, 'категории должны оставаться на главном экране');
@@ -143,7 +147,7 @@ async function main() {
     await page.screenshot({ path: path.join(outputDir, 'example-desktop.png'), fullPage: true });
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.locator('#homeGuide').scrollIntoViewIfNeeded();
+    await page.locator('#analyticsView').scrollIntoViewIfNeeded();
     const skipLinkState = await page.evaluate(() => {
       const link = document.querySelector('#skipLink');
       const rect = link.getBoundingClientRect();
@@ -155,16 +159,17 @@ async function main() {
       document: document.documentElement.scrollWidth
     }));
     assert.ok(pageWidth.document <= pageWidth.viewport, `горизонтальное переполнение: ${JSON.stringify(pageWidth)}`);
-    for (const selector of ['#homeGuide', '.view-tabs', '.analytics-kpis']) {
+    for (const selector of ['#demoBanner', '.analytics-kpis']) {
       const box = await page.locator(selector).boundingBox();
-      assert.equal(withinViewport(box, { width: 390, height: 844 }), true, `${selector} выходит за ширину экрана`);
+      assert.ok(box && box.x >= -1 && box.x + box.width <= 391, `${selector} выходит за ширину экрана: ${JSON.stringify(box)}`);
     }
     await page.screenshot({ path: path.join(outputDir, 'example-mobile.png'), fullPage: true });
 
-    await page.locator('#toggleAnalyticsDetails').click();
-    assert.equal(await page.locator('#periodChart').isVisible(), true);
-    assert.equal(await page.locator('.detail-panel').isVisible(), true);
-    assert.equal(await page.locator('#toggleAnalyticsDetails').getAttribute('aria-expanded'), 'true');
+    await page.locator('#demoExit').click();
+    await page.locator('#onboardingPanel').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#demoBanner').isVisible(), false);
+    assert.match(await page.locator('#downloadCsv').textContent(), /\(0\)/u, 'выход из примера должен вернуть пустую реальную базу');
+    assert.equal(await page.evaluate(() => localStorage.getItem('markettrat-onboarding-v2')), null, 'пример не должен завершать первый запуск');
 
     await page.reload();
     await page.locator('#onboardingPanel').waitFor({ state: 'visible' });
@@ -187,6 +192,40 @@ async function main() {
     assert.match(detailedCategories, /Электроника/u);
     await page.locator('#categoryLevel').selectOption('macro');
 
+    await page.evaluate(() => {
+      const synthetic = Array.from({ length: 1000 }, (_, index) => ({
+        date: `2026-01-${String(index % 28 + 1).padStart(2, '0')}`,
+        source: ['ozon', 'wildberries', 'yandex'][index % 3],
+        title: `Неизвестный предмет ${String(index + 1).padStart(4, '0')}`,
+        amount: `${100 + index}.00`,
+        currency: 'RUB',
+        category: 'unknown',
+        category_suggestion: 'other',
+        category_confidence: 0.2,
+        category_needs_review: true,
+        type: 'purchase',
+        marketplace_id: `mass-review-${index}`,
+        item_index: '0'
+      }));
+      withAutomaticPersistenceSuppressed(() => updateResult(synthetic, {}));
+    });
+    await page.locator('[data-view="categories"]').click();
+    assert.equal(await page.locator('#categoryReviewBadge').isVisible(), false, 'вкладка не должна пугать размером очереди');
+    assert.equal(await page.locator('#categoryReviewList .category-review-item').count(), 5, 'по умолчанию нужны только пять заметных групп');
+    assert.match(await page.locator('#categoryReviewSummary').textContent(), /Остальное можно не разбирать/u);
+    assert.doesNotMatch(await page.locator('#categoryQualityKpis').textContent(), /1000/u, 'раздел не должен предлагать разметить всю историю');
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.screenshot({ path: path.join(outputDir, 'categories-optional-desktop.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    const categoryPageWidth = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
+    assert.ok(categoryPageWidth.document <= categoryPageWidth.viewport, `категории переполнены: ${JSON.stringify(categoryPageWidth)}`);
+    await page.screenshot({ path: path.join(outputDir, 'categories-optional-mobile.png'), fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.locator('[data-view="analytics"]').click();
+    assert.doesNotMatch(await page.locator('#homeGuide').textContent(), /Проверить\s+\d+\s+покуп/u, 'категории не должны становиться главным заданием');
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('#downloadCsv')?.textContent?.includes('(3)'));
+
     await page.locator('#toggleAnalyticsDetails').click();
     await page.getByRole('button', { name: /Изменить операцию Кофе зерновой/u }).click();
     await page.locator('#operationEditor').waitFor({ state: 'visible' });
@@ -195,7 +234,7 @@ async function main() {
     await page.locator('#moneyRecovery').waitFor({ state: 'visible' });
     assert.match(await page.locator('#moneyRecoveryTitle').textContent(), /490/u);
     await page.locator('[data-view="categories"]').click();
-    assert.match(await page.locator('#categoryQualityKpis').textContent(), /0\s*решений запомнено/u, 'возврат не должен считаться ручной категорией');
+    assert.match(await page.locator('#categoryQualityKpis').textContent(), /0\s*ваших правил и решений/u, 'возврат не должен считаться ручной категорией');
     await page.locator('[data-view="analytics"]').click();
 
     const interruptedJobId = 'smoke-interrupted';
@@ -296,6 +335,7 @@ async function main() {
     await page.keyboard.press('Home');
     assert.equal(await page.locator('[data-view="analytics"]').getAttribute('aria-selected'), 'true');
 
+    await page.setViewportSize({ width: 390, height: 844 });
     for (const [view, panel] of [
       ['analytics', '#analyticsView'],
       ['categories', '#categoriesView'],
@@ -306,7 +346,7 @@ async function main() {
       const width = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
       assert.ok(width.document <= width.viewport, `${view}: горизонтальное переполнение ${JSON.stringify(width)}`);
       const box = await page.locator(panel).boundingBox();
-      assert.equal(withinViewport(box, { width: 390, height: 844 }), true, `${panel} выходит за ширину экрана`);
+      assert.ok(box && box.x >= -1 && box.x + box.width <= 391, `${panel} выходит за ширину экрана: ${JSON.stringify(box)}`);
       await page.screenshot({ path: path.join(outputDir, `${view}-mobile.png`), fullPage: true });
     }
     await page.locator('[data-view="analytics"]').click();

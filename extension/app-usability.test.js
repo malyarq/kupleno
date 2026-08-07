@@ -19,11 +19,19 @@ test('первый запуск ведёт к одному понятному д
   assert.match(css, /body\.first-run \.run-details \.toolbar[\s\S]*?display: none !important/);
 });
 
-test('пример не отключает обучение для следующего запуска', () => {
+test('пример изолирован и возвращает пользователя к своим данным', () => {
   const showDemoBody = app.match(/function showDemo\(\) \{([\s\S]*?)\n\}/)?.[1] || '';
   const completeBody = app.match(/function completeOnboarding\(\) \{([\s\S]*?)\n\}/)?.[1] || '';
+  for (const id of ['demoBanner', 'demoStart', 'demoUpload', 'demoExit']) {
+    assert.match(html, new RegExp(`id="${id}"`));
+  }
+  assert.match(showDemoBody, /demoRestoreState = captureAppState\(\)/);
+  assert.match(showDemoBody, /setDemoUi\(true\)/);
   assert.match(showDemoBody, /hideOnboardingForSession\(\)/);
   assert.doesNotMatch(showDemoBody, /completeOnboarding\(\)|localStorage\.setItem/);
+  assert.match(app, /function exitDemo\([\s\S]*?restoreCapturedState\(restoreState\)/);
+  assert.match(app, /els\.onboardingPanel\.hidden = false/);
+  assert.match(css, /body\.demo-mode \.view-tabs/);
   assert.match(completeBody, /localStorage\.setItem\(onboardingStorageKey, '1'\)/);
 });
 
@@ -46,11 +54,20 @@ test('устаревшая категория подписок не предла
 
 test('сложность не конкурирует с основным сценарием', () => {
   const tabLabels = [...html.matchAll(/class="tab-button[^>]*>([^<]+)/g)].map((match) => match[1].trim());
-  assert.deepEqual(tabLabels, ['Главное', 'Проверить', 'Советы', 'Настройки']);
+  assert.deepEqual(tabLabels, ['Главное', 'Категории', 'Советы', 'Настройки']);
   assert.doesNotMatch(tabLabels.join(' '), /Диагностика|Контроль|Аналитика/);
   assert.match(html, /<details class="analytics-filter-details">/);
   assert.match(html, /id="openDiagnostics"/);
   assert.match(css, /body:not\(\.has-data\) \.view-tabs/);
+});
+
+test('категории не превращаются в обязательную разметку истории', () => {
+  const tasksBody = app.match(/function homeGuideTasks\([\s\S]*?\n\}/)?.[0] || '';
+  assert.doesNotMatch(tasksBody, /quality\.reviewRows|Проверить .*покуп/);
+  assert.match(html, /Отчёт уже готов — разбирать всю историю не нужно/);
+  assert.match(app, /let categoryReviewShownCount = 5/);
+  assert.match(app, /Остальное можно не разбирать/);
+  assert.match(app, /els\.categoryReviewBadge\.hidden = true/);
 });
 
 test('ошибка показывает понятное объяснение раньше технических сведений', () => {

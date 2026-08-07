@@ -2086,6 +2086,57 @@ pre {
   box-shadow: var(--shadow-soft);
 }
 
+.demo-banner {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--primary), transparent 58%);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary), var(--panel) 94%);
+  box-shadow: var(--shadow-soft);
+}
+
+.demo-banner[hidden] {
+  display: none;
+}
+
+.demo-banner > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.demo-banner > div:first-child .local-badge {
+  width: fit-content;
+}
+
+.demo-banner > div:first-child > span:last-child {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.demo-banner-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  align-items: center;
+}
+
+body.demo-mode #collect,
+body.demo-mode .run-summary,
+body.demo-mode .run-details,
+body.demo-mode .view-tabs,
+body.demo-mode .home-guide,
+body.demo-mode .report-trust,
+body.demo-mode #toggleAnalyticsDetails,
+body.demo-mode .secondary-analysis {
+  display: none !important;
+}
+
 .onboarding-copy {
   min-width: 0;
 }
@@ -3203,8 +3254,23 @@ button.dialog-close:hover:not(:disabled) {
   }
 
   .warning-banner,
-  .home-guide {
+  .home-guide,
+  .demo-banner {
     grid-template-columns: 1fr;
+  }
+
+  .demo-banner {
+    display: grid;
+    align-items: stretch;
+  }
+
+  .demo-banner-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .demo-banner-actions button {
+    width: 100%;
   }
 
   .warning-banner {

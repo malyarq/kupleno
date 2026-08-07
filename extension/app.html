@@ -32,6 +32,19 @@
       </ol>
     </section>
 
+    <section id="demoBanner" class="demo-banner" hidden aria-labelledby="demoBannerTitle">
+      <div>
+        <span class="local-badge">Вымышленный пример</span>
+        <strong id="demoBannerTitle">Здесь нет ваших покупок</strong>
+        <span>Можно спокойно посмотреть отчёт. Пример не сохраняется и не смешивается с вашей историей.</span>
+      </div>
+      <div class="demo-banner-actions">
+        <button id="demoStart" type="button">Добавить мои покупки</button>
+        <button id="demoUpload" type="button" class="secondary">Загрузить CSV</button>
+        <button id="demoExit" type="button" class="tertiary-button">Закрыть пример</button>
+      </div>
+    </section>
+
     <section id="runSummary" class="run-summary" hidden>
       <span id="runSummaryText"></span>
       <div class="run-summary-actions">
@@ -98,7 +111,7 @@
 
     <nav class="view-tabs" aria-label="Разделы" role="tablist">
       <button class="tab-button active" type="button" data-view="analytics" role="tab" aria-controls="analyticsView" aria-selected="true">Главное</button>
-      <button class="tab-button" type="button" data-view="categories" role="tab" tabindex="-1" aria-controls="categoriesView" aria-selected="false">Проверить <span id="categoryReviewBadge" class="tab-badge" hidden>0</span></button>
+      <button class="tab-button" type="button" data-view="categories" role="tab" tabindex="-1" aria-controls="categoriesView" aria-selected="false">Категории <span id="categoryReviewBadge" class="tab-badge" hidden>0</span></button>
       <button class="tab-button" type="button" data-view="control" role="tab" tabindex="-1" aria-controls="controlView" aria-selected="false">Советы <span id="controlBadge" class="tab-badge" hidden>0</span></button>
       <button class="tab-button" type="button" data-view="data" role="tab" tabindex="-1" aria-controls="dataView" aria-selected="false">Настройки</button>
     </nav>
@@ -223,7 +236,7 @@
         </div>
         <div class="report-trust-actions">
           <button id="openCollectionAudit" type="button" class="secondary">Проверить сбор</button>
-          <button id="openCategoryReview" type="button" class="secondary">Проверить категории</button>
+          <button id="openCategoryReview" type="button" class="secondary">Уточнить категории</button>
         </div>
       </section>
 
@@ -393,23 +406,23 @@
       </div>
     </section>
 
-    <section id="categoriesView" class="category-review-view view-panel" role="tabpanel" tabindex="-1" inert aria-label="Проверка категорий" aria-hidden="true">
+    <section id="categoriesView" class="category-review-view view-panel" role="tabpanel" tabindex="-1" inert aria-label="Категории покупок" aria-hidden="true">
       <div class="data-titlebar category-review-titlebar">
         <div>
-          <h2>Проверить покупки</h2>
-          <p>Здесь только те покупки, для которых MarketTrat не смог уверенно выбрать категорию. Подтверждённый ответ можно запомнить для похожих названий.</p>
+          <h2>Уточнить категории</h2>
+          <p>Отчёт уже готов — разбирать всю историю не нужно. Если захотите повысить точность, исправьте несколько самых заметных групп: одно решение применяется ко всем похожим покупкам.</p>
         </div>
-        <button id="reviewAllCategories" type="button" class="secondary">Показать уже разобранные</button>
+        <button id="reviewAllCategories" type="button" class="secondary">Посмотреть все категории</button>
       </div>
       <div id="categoryQualityKpis" class="category-quality-kpis"></div>
       <div class="category-review-toolbar">
-        <input id="categoryReviewSearch" type="search" placeholder="Найти покупку, которая ждёт решения" aria-label="Поиск по покупкам, которые ждут решения">
+        <input id="categoryReviewSearch" type="search" placeholder="Найти покупку или категорию" aria-label="Поиск по покупкам и категориям">
         <span id="categoryReviewSummary"></span>
       </div>
       <div id="categoryReviewList" class="category-review-list" aria-live="polite">
-        <div class="data-empty">После загрузки данных здесь появятся спорные категории.</div>
+        <div class="data-empty">После загрузки данных здесь можно будет необязательно уточнить категории.</div>
       </div>
-      <button id="categoryReviewMore" type="button" class="secondary detail-more" hidden>Показать ещё</button>
+      <button id="categoryReviewMore" type="button" class="secondary detail-more" hidden>Показать ещё 5 — необязательно</button>
     </section>
 
     <section id="controlView" class="control-view view-panel" role="tabpanel" tabindex="-1" inert aria-label="Советы по покупкам" aria-hidden="true">
