@@ -4,7 +4,7 @@
 
 - `development build` — локальная или CI-сборка из ветки; не релиз.
 - `release candidate` — чистый exact commit под аннотированным тегом `vX.Y.Z`, прошедший `verify:release`, включая запуск собранного ZIP в чистом Chromium.
-- `published release` — отдельно одобренный кандидат, вручную опубликованный с теми же SHA-256.
+- `published release` — кандидат, автоматически опубликованный GitHub Actions только после полной проверки точного тега; публикуются те же файлы и SHA-256.
 - `source-compatible` — автоматические parser fixtures зелёные.
 - `live-compatible` — дополнительно пройден авторизованный smoke текущих маркетплейсов.
 

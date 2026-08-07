@@ -37,6 +37,7 @@ const requiredFiles = [
   'scripts/category-benchmark.js',
   'scripts/check-doc-links.js',
   'scripts/performance-benchmark.js',
+  'scripts/release-notes.js',
   'scripts/verify-packaged-extension.sh'
 ];
 
@@ -59,20 +60,35 @@ for (const workflow of ['.github/workflows/verify-release.yml', '.github/workflo
   for (const action of uses) {
     assert.match(action, /^[^@]+@[0-9a-f]{40}$/, `${action} must be pinned to a full commit SHA`);
   }
-  assert.match(source, /permissions:\n\s+contents: read/);
   assert.match(source, /npm ci/);
   assert.match(source, /playwright install --with-deps chromium/);
 }
 
 const candidateWorkflow = read('.github/workflows/release-candidate.yml');
+assert.match(candidateWorkflow, /^name: Build and publish release/m);
+assert.match(candidateWorkflow, /^permissions:\n\s+contents: read/m);
+assert.match(candidateWorkflow, /publish:\n[\s\S]+?permissions:\n\s+actions: read\n\s+contents: write/);
 assert.match(candidateWorkflow, /npm run verify:release/);
 assert.match(candidateWorkflow, /workflow_dispatch:/);
 assert.match(candidateWorkflow, /inputs\.tag \|\| github\.ref_name/);
 assert.match(candidateWorkflow, /github\.event_name == 'push' \|\| github\.ref == 'refs\/heads\/main'/);
 assert.match(candidateWorkflow, /ref: \$\{\{ inputs\.tag \|\| github\.ref \}\}/);
-assert.doesNotMatch(candidateWorkflow, /gh release|softprops\/action-gh-release|contents:\s*write/i);
+assert.match(candidateWorkflow, /gh release view/);
+assert.match(candidateWorkflow, /gh release create/);
+assert.match(candidateWorkflow, /gh release edit/);
+assert.match(candidateWorkflow, /gh release delete/);
+assert.match(candidateWorkflow, /gh run download/);
+assert.match(candidateWorkflow, /--verify-tag/);
+assert.match(candidateWorkflow, /--draft/);
+assert.match(candidateWorkflow, /--latest/);
+assert.match(candidateWorkflow, /cleanup_failed_draft/);
+assert.match(candidateWorkflow, /refusing to replace immutable assets/);
+for (const asset of ['markettrat-extension.zip', 'SHA256SUMS', 'provenance.txt', 'release-evidence.json']) {
+  assert.ok(candidateWorkflow.includes(`dist/${asset}`), `${asset} must be published from dist/`);
+}
 
 const verifyWorkflow = read('.github/workflows/verify-release.yml');
+assert.match(verifyWorkflow, /permissions:\n\s+contents: read/);
 assert.match(verifyWorkflow, /push:\n\s+branches: \[main\]/);
 assert.doesNotMatch(verifyWorkflow, /pull_request:|statuses:\s*write|MarketTrat verification/);
 assert.doesNotMatch(verifyWorkflow, /contents:\s*write|gh release|softprops\/action-gh-release/i);
@@ -82,6 +98,17 @@ assert.match(candidateScript, /status --porcelain --untracked-files=all/);
 assert.match(candidateScript, /cat-file -t/);
 assert.match(candidateScript, /rev-parse "refs\/tags\/\$TAG\^\{commit\}"/);
 assert.match(candidateScript, /npm --prefix "\$ROOT" run verify:reproducible/);
+
+const releaseNotes = require('../scripts/release-notes.js');
+assert.deepEqual(releaseNotes.parseTag('v1.2.3'), { tag: 'v1.2.3', version: '1.2.3' });
+assert.throws(() => releaseNotes.parseTag('latest'), /Expected a version tag/);
+assert.equal(
+  releaseNotes.extractChangelogSection('# Changelog\n\n## 1.2.3\n\n- Fixed\n\n## 1.2.2\n\n- Old\n', '1.2.3'),
+  '- Fixed'
+);
+const generatedNotes = releaseNotes.buildReleaseNotes(read('CHANGELOG.md'), `v${manifest.version}`);
+assert.match(generatedNotes, new RegExp(`blob/v${manifest.version}/README\\.md`));
+assert.match(generatedNotes, /CI не имеет пользовательских сессий маркетплейсов/);
 
 const packageScript = read('scripts/package-extension.sh');
 assert.match(packageScript, /Refusing ambiguous root archive/);

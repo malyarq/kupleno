@@ -1,4 +1,4 @@
-name: Build release candidate
+name: Build and publish release
 
 on:
   push:
@@ -48,10 +48,67 @@ jobs:
           CANDIDATE_TAG: ${{ inputs.tag || github.ref_name }}
         run: npm run verify:release -- "$CANDIDATE_TAG"
 
-      - name: Upload verified candidate without publishing it
+      - name: Build release notes
+        shell: bash
+        env:
+          CANDIDATE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: node scripts/release-notes.js "$CANDIDATE_TAG" dist/release-notes.md
+
+      - name: Upload verified candidate artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: markettrat-release-candidate-${{ inputs.tag || github.ref_name }}
           path: dist/
           if-no-files-found: error
           retention-days: 30
+
+  publish:
+    name: Publish verified immutable assets
+    needs: candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download verified candidate artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: markettrat-release-candidate-${{ inputs.tag || github.ref_name }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT_NAME" --dir dist
+
+      - name: Publish immutable GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$CANDIDATE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $CANDIDATE_TAG already exists; refusing to replace immutable assets." >&2
+            exit 1
+          fi
+
+          cleanup_failed_draft() {
+            set +e
+            if [[ "$(gh release view "$CANDIDATE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null)" == "true" ]]; then
+              gh release delete "$CANDIDATE_TAG" --repo "$GITHUB_REPOSITORY" --yes
+            fi
+          }
+          trap cleanup_failed_draft ERR
+
+          gh release create "$CANDIDATE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --draft \
+            --title "MarketTrat ${CANDIDATE_TAG#v}" \
+            --notes-file dist/release-notes.md \
+            dist/markettrat-extension.zip \
+            dist/SHA256SUMS \
+            dist/provenance.txt \
+            dist/release-evidence.json
+
+          gh release edit "$CANDIDATE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          trap - ERR
