@@ -1,8 +1,8 @@
-(function exposeMarketTratIntelligence(root, factory) {
+(function exposeKuplenoIntelligence(root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) {
-    root.MarketTratIntelligence = api;
+    root.KuplenoIntelligence = api;
     root.analyzeSpendIntelligence = api.analyze;
     root.normalizeProductIdentity = api.normalizeProductIdentity;
   }

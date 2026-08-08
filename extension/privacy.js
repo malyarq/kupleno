@@ -32,6 +32,6 @@
   }
 
   const exported = { redactText, redactLog, anonymizeSpendRows };
-  root.MarketTratPrivacy = exported;
+  root.KuplenoPrivacy = exported;
   if (typeof module !== 'undefined') module.exports = exported;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

@@ -1,11 +1,11 @@
 (function exposeCollectJobStore(root, factory) {
   const exported = factory();
   if (typeof module === 'object' && module.exports) module.exports = exported;
-  if (root) root.MarketTratCollectJobStore = exported;
+  if (root) root.KuplenoCollectJobStore = exported;
 })(typeof globalThis !== 'undefined' ? globalThis : this, () => {
   'use strict';
 
-  const keyPrefix = 'markettrat-collect-job-v1:';
+  const keyPrefix = 'kupleno-collect-job-v1:';
   const allowedStatuses = new Set(['running', 'done', 'error']);
   const DEFAULT_TTLS = Object.freeze({
     doneMs: 72 * 60 * 60 * 1000,

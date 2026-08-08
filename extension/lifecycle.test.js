@@ -136,6 +136,6 @@ const browserContext = { globalThis: null };
 browserContext.globalThis = browserContext;
 vm.createContext(browserContext);
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'lifecycle.js'), 'utf8'), browserContext);
-assert.equal(typeof browserContext.MarketTratLifecycle.closeMonth, 'function');
+assert.equal(typeof browserContext.KuplenoLifecycle.closeMonth, 'function');
 
 console.log('lifecycle.test.js: ok');

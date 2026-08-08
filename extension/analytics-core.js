@@ -1,7 +1,7 @@
 (function exposeAnalyticsCore(root, factory) {
   const exported = factory();
   if (typeof module === 'object' && module.exports) module.exports = exported;
-  if (root) root.MarketTratAnalyticsCore = exported;
+  if (root) root.KuplenoAnalyticsCore = exported;
 })(typeof globalThis !== 'undefined' ? globalThis : this, () => {
   'use strict';
 

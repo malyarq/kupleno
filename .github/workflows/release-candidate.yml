@@ -57,7 +57,7 @@ jobs:
       - name: Upload verified candidate artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: markettrat-release-candidate-${{ inputs.tag || github.ref_name }}
+          name: kupleno-release-candidate-${{ inputs.tag || github.ref_name }}
           path: dist/
           if-no-files-found: error
           retention-days: 30
@@ -75,7 +75,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          ARTIFACT_NAME: markettrat-release-candidate-${{ inputs.tag || github.ref_name }}
+          ARTIFACT_NAME: kupleno-release-candidate-${{ inputs.tag || github.ref_name }}
         run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT_NAME" --dir dist
 
       - name: Publish immutable GitHub Release
@@ -103,9 +103,9 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --draft \
-            --title "MarketTrat ${CANDIDATE_TAG#v}" \
+            --title "Куплено ${CANDIDATE_TAG#v}" \
             --notes-file dist/release-notes.md \
-            dist/markettrat-extension.zip \
+            dist/kupleno-extension.zip \
             dist/SHA256SUMS \
             dist/provenance.txt \
             dist/release-evidence.json

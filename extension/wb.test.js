@@ -2,15 +2,22 @@ const assert = require('node:assert/strict');
 const {
   allowedReceiptUrl,
   assertCollectedRowLimit,
+  decodeHtml,
   fatalCollectionError,
   isWildberriesReceiptsPageReady,
   parseWbReceiptItems,
+  stripTags,
   wbOperationType
 } = require('./background.js');
 
 assert.equal(allowedReceiptUrl('https://receipt.wb.ru/receipt/123'), 'https://receipt.wb.ru/receipt/123');
 assert.throws(() => allowedReceiptUrl('https://evil.example/collect'), /запрещённый адрес чека/);
 assert.throws(() => allowedReceiptUrl('http://receipt.wb.ru/receipt/123'), /запрещённый адрес чека/);
+assert.equal(decodeHtml('&amp;'), '&');
+assert.equal(decodeHtml('&#38;amp;'), '&amp;', 'вложенная сущность не должна раскодироваться дважды');
+assert.equal(stripTags('<script>alert(1)</script > Товар'), 'Товар');
+assert.equal(stripTags('<script>alert(1)</script\t\n data-x="1"> Товар'), 'Товар');
+assert.equal(stripTags('<style>body{display:none}</style > Чек &amp; товар'), 'Чек & товар');
 assert.doesNotThrow(() => assertCollectedRowLimit(100000));
 assert.throws(() => assertCollectedRowLimit(100001), /Сбор остановлен/);
 let overflow;

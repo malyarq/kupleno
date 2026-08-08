@@ -1,7 +1,7 @@
 (function exposeUpdate(root) {
-  const releaseApiUrl = 'https://api.github.com/repos/malyarq/market-trat/releases/latest';
-  const latestReleaseUrl = 'https://github.com/malyarq/market-trat/releases/latest';
-  const updateHelpUrl = 'https://github.com/malyarq/market-trat#%D0%BE%D0%B1%D0%BD%D0%BE%D0%B2%D0%BB%D0%B5%D0%BD%D0%B8%D0%B5';
+  const releaseApiUrl = 'https://api.github.com/repos/malyarq/kupleno/releases/latest';
+  const latestReleaseUrl = 'https://github.com/malyarq/kupleno/releases/latest';
+  const updateHelpUrl = 'https://github.com/malyarq/kupleno#%D0%BE%D0%B1%D0%BD%D0%BE%D0%B2%D0%BB%D0%B5%D0%BD%D0%B8%D0%B5';
   const updateCheckIntervalMs = 24 * 60 * 60 * 1000;
 
   function normalizeVersion(value) {
@@ -44,6 +44,6 @@
     shouldCheckForUpdate
   };
 
-  root.MarketTratUpdate = exported;
+  root.KuplenoUpdate = exported;
   if (typeof module !== 'undefined') module.exports = exported;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

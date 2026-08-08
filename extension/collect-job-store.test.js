@@ -38,8 +38,8 @@ async function main() {
     updatedAt: '2026-07-16T10:00:00.000Z'
   });
   assert.equal(restartedWorker.wasInterrupted(interrupted), true);
-  const storedSession = await session.get('markettrat-collect-job-v1:job-1');
-  assert.equal(Object.hasOwn(storedSession['markettrat-collect-job-v1:job-1'], 'result'), false);
+  const storedSession = await session.get('kupleno-collect-job-v1:job-1');
+  assert.equal(Object.hasOwn(storedSession['kupleno-collect-job-v1:job-1'], 'result'), false);
 
   clock = '2026-07-16T10:01:00Z';
   await firstWorker.save('job-1', { status: 'done', result: { rows: [{ title: 'Чай' }] } });

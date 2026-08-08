@@ -2,13 +2,13 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-OUTPUT=${1:-"$ROOT/dist/markettrat-extension.zip"}
+OUTPUT=${1:-"$ROOT/dist/kupleno-extension.zip"}
 case "$OUTPUT" in
   /*) ;;
   *) OUTPUT="$ROOT/$OUTPUT" ;;
 esac
 
-runtime_list=$(mktemp "${TMPDIR:-/tmp}/markettrat-runtime.XXXXXX")
+runtime_list=$(mktemp "${TMPDIR:-/tmp}/kupleno-runtime.XXXXXX")
 trap 'rm -f "$runtime_list"' EXIT HUP INT TERM
 
 sh -n "$ROOT/scripts/package-extension.sh"

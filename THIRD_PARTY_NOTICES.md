@@ -5,7 +5,7 @@
 - проект: [Mozilla PDF.js](https://github.com/mozilla/pdf.js);
 - пакет: `pdfjs-dist@5.6.205`;
 - исходные файлы пакета: `legacy/build/pdf.min.mjs` и `legacy/build/pdf.worker.min.mjs`;
-- файлы в MarketTrat: `extension/vendor/pdf.mjs` и `extension/vendor/pdf.worker.mjs`;
+- файлы в Куплено: `extension/vendor/pdf.mjs` и `extension/vendor/pdf.worker.mjs`;
 - лицензия: Apache License 2.0, копия в `LICENSES/Apache-2.0.txt`.
 
 Зафиксированные SHA-256:

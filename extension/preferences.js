@@ -495,6 +495,6 @@
     reconcileRefundClaims
   };
 
-  root.MarketTratPreferences = exported;
+  root.KuplenoPreferences = exported;
   if (typeof module !== 'undefined') module.exports = exported;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

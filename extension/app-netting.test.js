@@ -51,11 +51,11 @@ const context = {
   console,
   chrome: null,
   globalThis: null,
-  MarketTratPreferences: preferenceEngine,
-  MarketTratAnalyticsCore: analyticsCore,
-  MarketTratAnalyticsUtils: analyticsUtils,
-  MarketTratReportQuality: reportQuality,
-  MarketTratSourceHealth: sourceHealth,
+  KuplenoPreferences: preferenceEngine,
+  KuplenoAnalyticsCore: analyticsCore,
+  KuplenoAnalyticsUtils: analyticsUtils,
+  KuplenoReportQuality: reportQuality,
+  KuplenoSourceHealth: sourceHealth,
   localStorage: {
     getItem() { return null; },
     setItem() {},
@@ -609,8 +609,8 @@ const migrationSaveIndex = initializeBody.indexOf("persistSnapshot('Миграц
 assert.ok(loadIndex >= 0 && legacyRestoreIndex > loadIndex && migrationSaveIndex > legacyRestoreIndex);
 assert.match(initializeBody, /adoptLoadedDataEpoch\(loaded\.epoch\)/);
 assert.match(initializeBody, /dataEpoch === 0 && restoreLastRun\(\)/);
-assert.match(fullSource, /markettrat-last-run-v1/);
-assert.match(fullSource, /markettrat-budgets-v1/);
+assert.match(fullSource, /kupleno-last-run-v1/);
+assert.match(fullSource, /kupleno-budgets-v1/);
 
 const deleteAllDataBody = fullSource.slice(
   fullSource.indexOf('async function deleteAllData()'),

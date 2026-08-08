@@ -49,13 +49,13 @@ if [ "$#" -gt 1 ]; then
   exit 2
 fi
 
-OUTPUT=${1:-"$ROOT/dist/markettrat-extension.zip"}
+OUTPUT=${1:-"$ROOT/dist/kupleno-extension.zip"}
 case "$OUTPUT" in
   /*) ;;
   *) OUTPUT="$ROOT/$OUTPUT" ;;
 esac
-if [ "$OUTPUT" = "$ROOT/markettrat-extension.zip" ]; then
-  printf 'Refusing ambiguous root archive. Use dist/markettrat-extension.zip or another explicit path.\n' >&2
+if [ "$OUTPUT" = "$ROOT/kupleno-extension.zip" ]; then
+  printf 'Refusing ambiguous root archive. Use dist/kupleno-extension.zip or another explicit path.\n' >&2
   exit 2
 fi
 
@@ -64,7 +64,7 @@ ARCHIVE_NAME=$(basename -- "$OUTPUT")
 SUMS="$OUTPUT_DIR/SHA256SUMS"
 PROVENANCE="$OUTPUT_DIR/provenance.txt"
 EVIDENCE="$OUTPUT_DIR/release-evidence.json"
-stage=$(mktemp -d "${TMPDIR:-/tmp}/markettrat-package.XXXXXX")
+stage=$(mktemp -d "${TMPDIR:-/tmp}/kupleno-package.XXXXXX")
 trap 'rm -rf "$stage"' EXIT HUP INT TERM
 package="$stage/package"
 archive="$stage/$ARCHIVE_NAME"

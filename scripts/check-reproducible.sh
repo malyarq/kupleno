@@ -2,10 +2,10 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-stage=$(mktemp -d "${TMPDIR:-/tmp}/markettrat-reproducible.XXXXXX")
+stage=$(mktemp -d "${TMPDIR:-/tmp}/kupleno-reproducible.XXXXXX")
 trap 'rm -rf "$stage"' EXIT HUP INT TERM
-first="$stage/first/markettrat-extension.zip"
-second="$stage/second/markettrat-extension.zip"
+first="$stage/first/kupleno-extension.zip"
+second="$stage/second/kupleno-extension.zip"
 
 "$ROOT/scripts/package-extension.sh" "$first" >/dev/null
 "$ROOT/scripts/package-extension.sh" "$second" >/dev/null

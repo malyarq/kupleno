@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "MarketTrat",
-  "version": "0.16.2",
+  "name": "Куплено",
+  "version": "0.18.0",
   "minimum_chrome_version": "116",
   "description": "Локально собирает и анализирует покупки, возвраты и бюджеты Ozon, Wildberries и Яндекс Маркета.",
   "icons": {
@@ -29,7 +29,7 @@
     "https://check.yandex.ru/*"
   ],
   "action": {
-    "default_title": "MarketTrat",
+    "default_title": "Куплено",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png"

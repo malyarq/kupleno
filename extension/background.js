@@ -2,8 +2,8 @@ if (typeof importScripts === 'function') {
   importScripts('collect-job-store.js');
   importScripts('collect-result-store.js');
 } else if (typeof require === 'function') {
-  globalThis.MarketTratCollectJobStore = require('./collect-job-store.js');
-  globalThis.MarketTratCollectResultStore = require('./collect-result-store.js');
+  globalThis.KuplenoCollectJobStore = require('./collect-job-store.js');
+  globalThis.KuplenoCollectResultStore = require('./collect-result-store.js');
 }
 
 const api = globalThis.chrome;
@@ -13,13 +13,13 @@ let collectJobGeneration = 0;
 const workerInstanceId = globalThis.crypto?.randomUUID?.()
   || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 const collectJobStorePromise = Promise.resolve(
-  globalThis.MarketTratCollectJobStore.createCollectJobStore({
+  globalThis.KuplenoCollectJobStore.createCollectJobStore({
     session: api?.storage?.session,
     workerId: workerInstanceId
   })
 );
 const collectResultStorePromise = Promise.resolve(
-  globalThis.MarketTratCollectResultStore.createCollectResultStore({
+  globalThis.KuplenoCollectResultStore.createCollectResultStore({
     indexedDB: globalThis.indexedDB
   })
 );
@@ -462,21 +462,19 @@ function amountFromText(text) {
 }
 
 function decodeHtml(text) {
-  return String(text || '')
-    .replace(/&#x([0-9a-f]+);/gi, (_, value) => String.fromCharCode(parseInt(value, 16)))
-    .replace(/&#(\d+);/g, (_, value) => String.fromCharCode(Number(value)))
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>');
+  const named = { nbsp: ' ', amp: '&', quot: '"', lt: '<', gt: '>' };
+  return String(text || '').replace(
+    /&(?:#x([0-9a-f]+)|#(\d+)|(nbsp|amp|quot|lt|gt));/gi,
+    (_match, hex, decimal, name) => name
+      ? named[name.toLowerCase()]
+      : String.fromCharCode(Number.parseInt(hex || decimal, hex ? 16 : 10))
+  );
 }
 
 function stripTags(html) {
   return decodeHtml(String(html || '')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi, ' ')
     .replace(/<[^>]+>/g, ' '))
     .replace(/\s+/g, ' ')
     .trim();
@@ -767,9 +765,9 @@ async function fetchYandexResolve(tabId, headers, params, path, pauseMs = 0) {
       world: 'MAIN',
       func: async (resolver, clientHeaders, requestParams, requestPath) => {
         function decodeHtml(text) {
-          return String(text || '')
-            .replace(/&quot;/g, '"')
-            .replace(/&amp;/g, '&');
+          return String(text || '').replace(/&(quot|amp);/g, (_match, name) => (
+            name === 'quot' ? '"' : '&'
+          ));
         }
 
         function headerValue(html, key) {
@@ -1541,6 +1539,8 @@ if (api?.runtime?.onMessage) {
 if (typeof module !== 'undefined') {
   module.exports = {
     allowedReceiptUrl,
+    decodeHtml,
+    stripTags,
     parseWbReceiptItems,
     isWildberriesReceiptsPageReady,
     wbOperationType,

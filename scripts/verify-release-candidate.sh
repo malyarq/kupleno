@@ -27,6 +27,6 @@ npm --prefix "$ROOT" run verify:reproducible
 grep -Fq "git_dirty=false" "$ROOT/dist/provenance.txt"
 grep -Fq "expected_tag=$TAG" "$ROOT/dist/provenance.txt"
 grep -Fq "tag_matches_head=true" "$ROOT/dist/provenance.txt"
-node "$ROOT/scripts/release-evidence.js" verify "$ROOT/dist/release-evidence.json" "$ROOT/dist/markettrat-extension.zip"
+node "$ROOT/scripts/release-evidence.js" verify "$ROOT/dist/release-evidence.json" "$ROOT/dist/kupleno-extension.zip"
 
 printf 'release candidate %s: ok\n' "$TAG"

@@ -1,5 +1,5 @@
 (() => {
-  const contentScriptVersion = 'markettrat-content-v2';
+  const contentScriptVersion = 'kupleno-content-v2';
   if (window.__marketplaceSpendExporterInjected === contentScriptVersion) return;
   window.__marketplaceSpendExporterInjected = contentScriptVersion;
 
@@ -207,17 +207,20 @@
   }
 
   function normalizeText(text) {
-    return String(text || '')
-      .replace(/\\u002d/gi, '-')
-      .replace(/\\u005f/gi, '_')
-      .replace(/\\u002f/gi, '/')
-      .replace(/\\u003a/gi, ':')
-      .replace(/\\u003f/gi, '?')
-      .replace(/\\u003d/gi, '=')
-      .replace(/\\u0026/gi, '&')
-      .replace(/\\u0025/gi, '%')
-      .replace(/&amp;/g, '&')
-      .replace(/\\\//g, '/');
+    const unicodeEscapes = {
+      '002d': '-',
+      '005f': '_',
+      '002f': '/',
+      '003a': ':',
+      '003f': '?',
+      '003d': '=',
+      '0026': '&',
+      '0025': '%'
+    };
+    return String(text || '').replace(
+      /\\u(002d|005f|002f|003a|003f|003d|0026|0025)|&amp;|\\\//gi,
+      (match, code) => code ? unicodeEscapes[code.toLowerCase()] : (match[0] === '&' ? '&' : '/')
+    );
   }
 
   function tryJsonParse(text) {
@@ -1402,13 +1405,13 @@
   ];
 
   function decodeHtmlEntities(text) {
-    return String(text || '')
-      .replace(/&#x([0-9a-f]+);/gi, (_, value) => String.fromCharCode(parseInt(value, 16)))
-      .replace(/&#(\d+);/g, (_, value) => String.fromCharCode(Number(value)))
-      .replace(/&quot;/g, '"')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>');
+    const named = { amp: '&', quot: '"', lt: '<', gt: '>' };
+    return String(text || '').replace(
+      /&(?:#x([0-9a-f]+)|#(\d+)|(amp|quot|lt|gt));/gi,
+      (_match, hex, decimal, name) => name
+        ? named[name.toLowerCase()]
+        : String.fromCharCode(Number.parseInt(hex || decimal, hex ? 16 : 10))
+    );
   }
 
   function extractYandexOrderIdsFromHtml(html) {
@@ -1841,11 +1844,13 @@
     return true;
   });
 
-  if (globalThis.MarketTratTestMode) {
-    globalThis.MarketTratOzonTest = Object.freeze({
+  if (globalThis.KuplenoTestMode) {
+    globalThis.KuplenoOzonTest = Object.freeze({
       filterOzonRows,
       foldDeliveryIntoRows,
       parseOzonPdfRows,
+      normalizeText,
+      decodeHtmlEntities,
       extractYandexPageTokenFromHtml,
       hasYandexNextOrdersPage,
       assertCollectedRowLimit

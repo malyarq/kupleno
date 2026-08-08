@@ -107,6 +107,7 @@ const els = {
   actionInsightList: document.getElementById('actionInsightList'),
   chartRange: document.getElementById('chartRange'),
   periodChart: document.getElementById('periodChart'),
+  periodChartLegend: document.getElementById('periodChartLegend'),
   periodChartMode: document.getElementById('periodChartMode'),
   activeProfileSelect: document.getElementById('activeProfileSelect'),
   sourceBreakdown: document.getElementById('sourceBreakdown'),
@@ -235,28 +236,29 @@ const knownReceiptLimit = 3000;
 const maxCsvImportBytes = 20 * 1024 * 1024;
 const maxRenderedDetailRows = 500;
 
-const logStorageKey = 'markettrat-log-v1';
-const themeStorageKey = 'markettrat-theme-v1';
-const categoryLevelStorageKey = 'markettrat-category-level-v1';
-const categoryChartTypeStorageKey = 'markettrat-category-chart-v1';
-const periodChartModeStorageKey = 'markettrat-period-chart-mode-v1';
-const lastRunStorageKey = 'markettrat-last-run-v1';
-const budgetStorageKey = 'markettrat-budgets-v1';
-const onboardingStorageKey = 'markettrat-onboarding-v2';
-const collectSourcesStorageKey = 'markettrat-collect-sources-v1';
-const activeProfileStorageKey = 'markettrat-active-profile-v1';
-const dataProfileStorageKey = 'markettrat-data-profile-v1';
-const activeCollectJobStorageKey = 'markettrat-active-collect-job-v1';
-const updateCheckStorageKey = 'markettrat-update-check-v1';
-const featureStorage = globalThis.MarketTratStorage;
-const preferences = globalThis.MarketTratPreferences;
-const intelligence = globalThis.MarketTratIntelligence;
-const lifecycle = globalThis.MarketTratLifecycle;
-const privacy = globalThis.MarketTratPrivacy;
-const analyticsCore = globalThis.MarketTratAnalyticsCore;
-const analyticsUtils = globalThis.MarketTratAnalyticsUtils;
-const reportQuality = globalThis.MarketTratReportQuality;
-const sourceHealth = globalThis.MarketTratSourceHealth;
+// Совместимость с версиями до переименования: эти ключи нельзя менять без миграции данных.
+const logStorageKey = 'kupleno-log-v1';
+const themeStorageKey = 'kupleno-theme-v1';
+const categoryLevelStorageKey = 'kupleno-category-level-v1';
+const categoryChartTypeStorageKey = 'kupleno-category-chart-v1';
+const periodChartModeStorageKey = 'kupleno-period-chart-mode-v1';
+const lastRunStorageKey = 'kupleno-last-run-v1';
+const budgetStorageKey = 'kupleno-budgets-v1';
+const onboardingStorageKey = 'kupleno-onboarding-v2';
+const collectSourcesStorageKey = 'kupleno-collect-sources-v1';
+const activeProfileStorageKey = 'kupleno-active-profile-v1';
+const dataProfileStorageKey = 'kupleno-data-profile-v1';
+const activeCollectJobStorageKey = 'kupleno-active-collect-job-v1';
+const updateCheckStorageKey = 'kupleno-update-check-v1';
+const featureStorage = globalThis.KuplenoStorage;
+const preferences = globalThis.KuplenoPreferences;
+const intelligence = globalThis.KuplenoIntelligence;
+const lifecycle = globalThis.KuplenoLifecycle;
+const privacy = globalThis.KuplenoPrivacy;
+const analyticsCore = globalThis.KuplenoAnalyticsCore;
+const analyticsUtils = globalThis.KuplenoAnalyticsUtils;
+const reportQuality = globalThis.KuplenoReportQuality;
+const sourceHealth = globalThis.KuplenoSourceHealth;
 const {
   formatRub,
   pluralRu,
@@ -277,7 +279,7 @@ const {
   compareText
 } = analyticsUtils;
 const dataSyncChannel = typeof BroadcastChannel === 'function'
-  ? new BroadcastChannel('markettrat-data-sync-v1')
+  ? new BroadcastChannel('kupleno-data-sync-v1')
   : null;
 const sourceLabels = {
   ozon: 'Ozon',
@@ -1625,12 +1627,12 @@ function showUpdateBanner(version) {
   const text = document.createElement('span');
   text.textContent = `Доступна версия ${version}.`;
   const link = document.createElement('a');
-  link.href = globalThis.MarketTratUpdate.latestReleaseUrl;
+  link.href = globalThis.KuplenoUpdate.latestReleaseUrl;
   link.target = '_blank';
   link.rel = 'noopener noreferrer';
   link.textContent = 'Скачать обновление';
   const help = document.createElement('a');
-  help.href = globalThis.MarketTratUpdate.updateHelpUrl;
+  help.href = globalThis.KuplenoUpdate.updateHelpUrl;
   help.target = '_blank';
   help.rel = 'noopener noreferrer';
   help.textContent = 'Как обновиться';
@@ -1639,7 +1641,7 @@ function showUpdateBanner(version) {
 }
 
 async function checkForUpdate() {
-  const update = globalThis.MarketTratUpdate;
+  const update = globalThis.KuplenoUpdate;
   const current = api?.runtime?.getManifest?.().version || '';
   if (!update || !current) return;
 
@@ -2497,6 +2499,7 @@ function periodChartSegmentTitle(item, segment) {
 function renderPeriodChart(periods, categoryOrder = new Map()) {
   const svg = els.periodChart;
   clearNode(svg);
+  clearNode(els.periodChartLegend);
 
   lastPeriodChartPeriods = periods;
   lastPeriodChartCategoryOrder = categoryOrder;
@@ -2525,6 +2528,37 @@ function renderPeriodChart(periods, categoryOrder = new Map()) {
       'font-size': 14
     }, 'Нет данных для выбранной выборки'));
     return;
+  }
+
+  const legendEntries = new Map();
+  for (const period of periods) {
+    for (const segment of periodChartSegments(period, categoryOrder)) {
+      const current = legendEntries.get(segment.key) || { ...segment, amount: 0 };
+      current.amount += segment.amount;
+      legendEntries.set(segment.key, current);
+    }
+  }
+  const legendItems = [...legendEntries.values()]
+    .sort((left, right) => right.amount - left.amount);
+  const shownLegendItems = els.periodChartMode.value === 'category'
+    ? legendItems.slice(0, 6)
+    : legendItems;
+  for (const entry of shownLegendItems) {
+    const item = document.createElement('span');
+    item.className = 'chart-legend-item';
+    const swatch = document.createElement('span');
+    swatch.className = 'chart-legend-swatch';
+    swatch.style.background = entry.color;
+    const label = document.createElement('span');
+    label.textContent = entry.label;
+    item.append(swatch, label);
+    els.periodChartLegend.appendChild(item);
+  }
+  if (legendItems.length > shownLegendItems.length) {
+    const more = document.createElement('span');
+    more.className = 'chart-legend-more';
+    more.textContent = `ещё ${legendItems.length - shownLegendItems.length}`;
+    els.periodChartLegend.appendChild(more);
   }
 
   const values = periods.map((item) => item.total);
@@ -3098,7 +3132,7 @@ function renderBudgets() {
   } else {
     els.budgetForecastStatus.textContent = history.sufficientHistory
       ? `За месяц учтено ${formatRub(summary.spent)}. Среднее по ${history.sourceMonths.length} закрытым месяцам — ${formatRub(history.estimate.total)}. Это ориентир, а не прогноз.`
-      : `За месяц учтено ${formatRub(summary.spent)}. ${history.reason} MarketTrat не строит прогноз по нескольким дням текущего месяца.`;
+      : `За месяц учтено ${formatRub(summary.spent)}. ${history.reason} Куплено не строит прогноз по нескольким дням текущего месяца.`;
   }
 
   clearNode(els.budgetBreakdown);
@@ -3450,6 +3484,7 @@ function renderCategoryReview() {
   const pendingGroupCount = categoryReviewGroupCount(rows);
   const suggestedGroupCount = Math.min(5, pendingGroupCount);
   clearNode(els.categoryQualityKpis);
+  els.categoryQualityKpis.classList.toggle('all-clear', suggestedGroupCount === 0);
   for (const [value, label, kind] of [
     [`${quality.coverage}%`, 'определено автоматически', 'ok'],
     [String(suggestedGroupCount), 'важных групп предложено', ''],
@@ -4483,7 +4518,12 @@ function controlItem(titleText, detailText, actions = [], kind = '', noteText = 
 
 function renderControlKpis(values) {
   clearNode(els.controlKpis);
-  for (const [value, label, kind] of values) {
+  const visibleValues = values.filter(([value]) => !/^0(?:[\s,.]|$)/u.test(String(value).trim()));
+  const displayValues = visibleValues.length
+    ? visibleValues
+    : [['Всё спокойно', 'нет задач для проверки', 'ok']];
+  els.controlKpis.classList.toggle('all-clear', visibleValues.length === 0);
+  for (const [value, label, kind] of displayValues) {
     const card = document.createElement('div');
     card.className = `category-quality-card ${kind}`.trim();
     const strong = document.createElement('strong');
@@ -4850,7 +4890,7 @@ function exportBackup() {
     settings: appSettings,
     metadata: snapshotMetadata('Резервная копия')
   });
-  downloadBlob(text, 'application/json;charset=utf-8', `markettrat-backup-${localInputDate(new Date())}.json`);
+  downloadBlob(text, 'application/json;charset=utf-8', `kupleno-backup-${localInputDate(new Date())}.json`);
   appendLog(`Резервная копия экспортирована: строк ${sourceRows.length}.`);
 }
 
@@ -4881,7 +4921,7 @@ async function importBackup() {
       `В файле: ${formatCount(backup.rows.length, ['операция', 'операции', 'операций'])}, разделов покупок: ${profileCount || 1}.`,
       `Копия создана: ${exportedLabel}.`,
       '',
-      'Перед заменой MarketTrat сохранит текущую версию, чтобы её можно было вернуть.',
+      'Перед заменой Куплено сохранит текущую версию, чтобы её можно было вернуть.',
       'Нажмите «ОК», чтобы заменить историю, или «Отмена», чтобы ничего не менять.'
     ].join('\n'));
     if (!confirmed) {
@@ -4968,7 +5008,7 @@ async function renderHistory() {
 }
 
 async function deleteAllData() {
-  if (!globalThis.confirm('Удалить все локальные данные MarketTrat? Это действие нельзя отменить.')) return;
+  if (!globalThis.confirm('Удалить все локальные данные Куплено? Это действие нельзя отменить.')) return;
   const mutationGeneration = beginDatabaseMutation('Дождитесь завершения сбора перед удалением данных.');
   if (!mutationGeneration) return;
   let collectJobCleanupError = null;
@@ -4984,7 +5024,7 @@ async function deleteAllData() {
     adoptLoadedDataRevision(clearedState.revision);
     for (let index = localStorage.length - 1; index >= 0; index -= 1) {
       const key = localStorage.key(index);
-      if (key?.startsWith('markettrat-')) localStorage.removeItem(key);
+      if (key?.startsWith('kupleno-')) localStorage.removeItem(key);
     }
     resetLocalDataAfterClear(nextEpoch, false);
     dataSyncChannel?.postMessage({
@@ -5505,7 +5545,7 @@ function updateAnalytics() {
 
   els.analyticsTotal.textContent = formatRub(total);
   const scope = analyticsScopeName();
-  els.analyticsTotalLabel.textContent = scope ? `итого: ${scope}` : 'итого, ₽';
+  els.analyticsTotalLabel.textContent = scope ? `потрачено: ${scope}` : 'потрачено';
   const comparison = prevRange ? compareText(total, prevTotal) : '';
   els.analyticsTotalCompare.textContent = comparison;
   els.analyticsTotalCompare.className = comparison.startsWith('+')
@@ -5573,7 +5613,7 @@ function downloadCsv() {
   const url = URL.createObjectURL(new Blob([exportText], { type: 'text/csv;charset=utf-8' }));
   const a = document.createElement('a');
   a.href = url;
-  a.download = `markettrat-${csvExportSuffix()}.csv`;
+  a.download = `kupleno-${csvExportSuffix()}.csv`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -6156,17 +6196,17 @@ els.importDataBackupInput.addEventListener('change', () => {
 });
 els.downloadFullCsv.addEventListener('click', () => {
   const records = dataExportRows();
-  downloadBlob(makeCsv(records), 'text/csv;charset=utf-8', `markettrat-full-${localInputDate(new Date())}.csv`);
+  downloadBlob(makeCsv(records), 'text/csv;charset=utf-8', `kupleno-full-${localInputDate(new Date())}.csv`);
   appendLog(`Полный CSV экспортирован: строк ${records.length}, включая исключённые операции.`);
 });
 els.downloadJson.addEventListener('click', () => {
   const records = dataExportRows();
-  downloadBlob(`${JSON.stringify(records, null, 2)}\n`, 'application/json;charset=utf-8', `markettrat-full-${localInputDate(new Date())}.json`);
+  downloadBlob(`${JSON.stringify(records, null, 2)}\n`, 'application/json;charset=utf-8', `kupleno-full-${localInputDate(new Date())}.json`);
   appendLog(`JSON экспорт: строк ${records.length}.`);
 });
 els.downloadAnonymousCsv.addEventListener('click', () => {
   const records = privacy.anonymizeSpendRows(dataExportRows());
-  downloadBlob(makeCsv(records), 'text/csv;charset=utf-8', `markettrat-without-titles-full-${localInputDate(new Date())}.csv`);
+  downloadBlob(makeCsv(records), 'text/csv;charset=utf-8', `kupleno-without-titles-full-${localInputDate(new Date())}.csv`);
   appendLog(`CSV без названий товаров экспортирован: строк ${records.length}.`);
 });
 els.revokeSourcePermissions.addEventListener('click', () => {
@@ -6265,7 +6305,7 @@ async function initializeApp() {
   await checkStorageHealth();
   checkForUpdate();
   if (storedCollectJobId()) {
-    const message = 'Найден предыдущий незавершённый сбор. Нажмите «Добавить покупки»: MarketTrat сначала попробует получить уже готовый результат и не станет заново обращаться к магазинам.';
+    const message = 'Найден предыдущий незавершённый сбор. Нажмите «Добавить покупки»: Куплено сначала попробует получить уже готовый результат и не станет заново обращаться к магазинам.';
     setStatus(message);
     appendLog(message, 'collect-job-recovery');
   }

@@ -10,12 +10,12 @@ const css = fs.readFileSync(path.join(__dirname, 'app.css'), 'utf8');
 const app = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 
 test('первый запуск ведёт к одному понятному действию', () => {
-  assert.match(html, /id="onboardingTitle">Посмотрите, куда уходят деньги на маркетплейсах/);
-  assert.match(html, /id="onboardingStart"[^>]*disabled[^>]*>Собрать мои покупки</);
+  assert.match(html, /id="onboardingTitle">Все покупки — в одной понятной картине/);
+  assert.match(html, /id="onboardingStart"[^>]*disabled[^>]*>Собрать покупки</);
   assert.match(html, /id="onboardingUpload"[^>]*>Загрузить CSV</);
   assert.match(html, /id="collectHint"[^>]*>Сбор может занять несколько минут/);
   assert.match(app, /els\.onboardingStart\.addEventListener\('click',[\s\S]*?els\.collect\.click\(\)/);
-  assert.ok(html.indexOf('id="onboardingStart"') < html.indexOf('class="sources"'), 'главное действие видно до настроек сбора');
+  assert.ok(html.indexOf('id="onboardingStart"') > html.indexOf('class="sources"'), 'сначала пользователь выбирает магазины, затем запускает сбор');
   assert.match(css, /body\.first-run \.run-details \.toolbar[\s\S]*?display: none !important/);
 });
 
@@ -61,7 +61,7 @@ test('устаревшая категория подписок не предла
 
 test('сложность не конкурирует с основным сценарием', () => {
   const tabLabels = [...html.matchAll(/class="tab-button[^>]*>([^<]+)/g)].map((match) => match[1].trim());
-  assert.deepEqual(tabLabels, ['Главное', 'Категории', 'Советы', 'Настройки']);
+  assert.deepEqual(tabLabels, ['Отчёт', 'Категории', 'Проверить', 'Настройки']);
   assert.doesNotMatch(tabLabels.join(' '), /Диагностика|Контроль|Аналитика/);
   assert.match(html, /<details class="analytics-filter-details">/);
   assert.match(html, /id="openDiagnostics"/);

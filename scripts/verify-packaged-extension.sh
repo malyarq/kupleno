@@ -2,7 +2,7 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-ARCHIVE=${1:-"$ROOT/dist/markettrat-extension.zip"}
+ARCHIVE=${1:-"$ROOT/dist/kupleno-extension.zip"}
 case "$ARCHIVE" in
   /*) ;;
   *) ARCHIVE="$ROOT/$ARCHIVE" ;;
@@ -13,7 +13,7 @@ if [ ! -f "$ARCHIVE" ]; then
   exit 1
 fi
 
-stage=$(mktemp -d "${TMPDIR:-/tmp}/markettrat-packaged-smoke.XXXXXX")
+stage=$(mktemp -d "${TMPDIR:-/tmp}/kupleno-packaged-smoke.XXXXXX")
 trap 'rm -rf "$stage"' EXIT HUP INT TERM
 
 mkdir -p "$stage/extension"

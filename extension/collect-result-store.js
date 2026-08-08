@@ -1,11 +1,11 @@
 (function exposeCollectResultStore(root, factory) {
   const exported = factory(root);
   if (typeof module === 'object' && module.exports) module.exports = exported;
-  if (root) root.MarketTratCollectResultStore = exported;
+  if (root) root.KuplenoCollectResultStore = exported;
 })(typeof globalThis !== 'undefined' ? globalThis : this, (root) => {
   'use strict';
 
-  const DB_NAME = 'markettrat-collect-results-v1';
+  const DB_NAME = 'kupleno-collect-results-v1';
   const DB_VERSION = 1;
   const STORE_NAME = 'results';
   const DEFAULT_TTL_MS = 72 * 60 * 60 * 1000;

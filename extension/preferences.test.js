@@ -264,6 +264,6 @@ const browserContext = { globalThis: null };
 browserContext.globalThis = browserContext;
 vm.createContext(browserContext);
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'preferences.js'), 'utf8'), browserContext);
-assert.equal(typeof browserContext.MarketTratPreferences.buildBudgetSummary, 'function');
+assert.equal(typeof browserContext.KuplenoPreferences.buildBudgetSummary, 'function');
 
 console.log('preferences.test.js: ok');

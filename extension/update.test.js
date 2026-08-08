@@ -17,4 +17,4 @@ assert.equal(shouldCheckForUpdate(null, 1000), true);
 assert.equal(shouldCheckForUpdate(1000, 1000 + updateCheckIntervalMs - 1), false);
 assert.equal(shouldCheckForUpdate(1000, 1000 + updateCheckIntervalMs), true);
 assert.equal(shouldCheckForUpdate(2000, 1000), true, 'сломанные часы не должны навсегда отключать проверку');
-assert.ok(updateHelpUrl.includes('market-trat#'));
+assert.ok(updateHelpUrl.includes('kupleno#'));

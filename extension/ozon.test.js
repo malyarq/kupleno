@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const context = {
   console,
   globalThis: null,
-  MarketTratTestMode: true,
+  KuplenoTestMode: true,
   window: null,
   location: { href: 'https://www.ozon.ru/my/e-check', origin: 'https://www.ozon.ru', pathname: '/my/e-check' },
   navigator: { hardwareConcurrency: 8 },
@@ -35,10 +35,17 @@ const {
   filterOzonRows,
   foldDeliveryIntoRows,
   parseOzonPdfRows,
+  normalizeText,
+  decodeHtmlEntities,
   assertCollectedRowLimit,
   extractYandexPageTokenFromHtml,
   hasYandexNextOrdersPage
-} = context.MarketTratOzonTest;
+} = context.KuplenoOzonTest;
+
+assert.equal(normalizeText('&amp;'), '&');
+assert.equal(normalizeText('\\u0026amp;'), '&amp;', 'unicode-escape не должен создавать второе раскодирование');
+assert.equal(decodeHtmlEntities('&amp;'), '&');
+assert.equal(decodeHtmlEntities('&#38;amp;'), '&amp;', 'HTML-сущность не должна раскодироваться дважды');
 
 assert.doesNotThrow(() => assertCollectedRowLimit(100000));
 assert.throws(() => assertCollectedRowLimit(100001), /Сбор остановлен/);

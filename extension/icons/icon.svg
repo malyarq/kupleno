@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="MarketTrat">
-  <rect x="4" y="4" width="120" height="120" rx="28" fill="#111827"/>
-  <rect x="27" y="68" width="20" height="34" rx="10" fill="#005bff"/>
-  <rect x="54" y="49" width="20" height="53" rx="10" fill="#cb11ab"/>
-  <rect x="81" y="29" width="20" height="73" rx="10" fill="#f2c200"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="Куплено">
+  <rect x="4" y="4" width="120" height="120" rx="30" fill="#143d33"/>
+  <path d="M34 24h60v76l-7-5-8 6-8-6-8 6-8-6-8 6-13-9V24Z" fill="#fffdf8"/>
+  <circle cx="47" cy="43" r="5" fill="#f2ad49"/>
+  <path d="M47 68.5 58.5 80 83 54.5" fill="none" stroke="#1a8b6d" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

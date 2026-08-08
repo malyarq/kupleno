@@ -11,7 +11,7 @@ const fixture = (name) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtu
 const context = {
   console,
   globalThis: null,
-  MarketTratTestMode: true,
+  KuplenoTestMode: true,
   window: null,
   location: { href: 'https://www.ozon.ru/my/e-check', origin: 'https://www.ozon.ru', pathname: '/my/e-check' },
   navigator: { hardwareConcurrency: 8 },
@@ -29,7 +29,7 @@ context.globalThis = context;
 context.window = context;
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'content.js'), 'utf8'), context);
-const { parseOzonPdfRows } = context.MarketTratOzonTest;
+const { parseOzonPdfRows } = context.KuplenoOzonTest;
 
 function assertRows(name, rows, expected) {
   assert.equal(rows.length, expected.rows, `${name}: rows`);

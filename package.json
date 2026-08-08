@@ -1,8 +1,8 @@
 {
-  "name": "markettrat-release-tools",
+  "name": "kupleno-release-tools",
   "private": true,
-  "version": "0.16.2",
-  "description": "Local release verification for MarketTrat",
+  "version": "0.18.0",
+  "description": "Локальная проверка релизов Куплено",
   "scripts": {
     "package": "sh scripts/package-extension.sh",
     "verify:browser": "node scripts/browser-smoke.js",

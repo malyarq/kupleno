@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -11,6 +12,7 @@ const requiredFiles = [
   '.nvmrc',
   '.github/ISSUE_TEMPLATE/config.yml',
   '.github/ISSUE_TEMPLATE/bug_report.yml',
+  '.github/ISSUE_TEMPLATE/feature_request.yml',
   '.github/workflows/codeql.yml',
   '.github/workflows/verify-release.yml',
   '.github/workflows/release-candidate.yml',
@@ -30,6 +32,8 @@ const requiredFiles = [
   'docs/TESTING.md',
   'assets/screenshots/analytics.png',
   'assets/screenshots/overview.png',
+  'assets/brand/kupleno-social-preview.png',
+  'assets/brand/kupleno-social-preview.svg',
   'extension/analytics-core.js',
   'extension/analytics-utils.js',
   'extension/category-benchmark.json',
@@ -57,6 +61,16 @@ assert.equal(packageJson.version, manifest.version);
 assert.match(read('CHANGELOG.md'), new RegExp(`^## ${manifest.version}\\b`, 'm'));
 assert.ok(read('README.md').includes(`Текущий релиз: \`${manifest.version}\``));
 assert.ok(read('extension/README.md').includes(`Версия: \`${manifest.version}\``));
+
+const legacyBrandPattern = new RegExp(['market', 'trat'].join('[ _-]?'), 'i');
+const trackedTextFiles = execFileSync('git', ['ls-files', '-z'], { cwd: root })
+  .toString('utf8')
+  .split('\0')
+  .filter(Boolean)
+  .filter((relative) => /(?:^|\/)(?:[^/]+\.(?:css|html|js|json|md|sh|txt|ya?ml)|\.gitignore|\.nvmrc)$/.test(relative));
+for (const relative of trackedTextFiles) {
+  assert.doesNotMatch(read(relative), legacyBrandPattern, `${relative} contains an obsolete product name`);
+}
 
 for (const workflow of ['.github/workflows/verify-release.yml', '.github/workflows/release-candidate.yml']) {
   const source = read(workflow);
@@ -88,14 +102,14 @@ assert.match(candidateWorkflow, /--draft/);
 assert.match(candidateWorkflow, /--latest/);
 assert.match(candidateWorkflow, /cleanup_failed_draft/);
 assert.match(candidateWorkflow, /refusing to replace immutable assets/);
-for (const asset of ['markettrat-extension.zip', 'SHA256SUMS', 'provenance.txt', 'release-evidence.json']) {
+for (const asset of ['kupleno-extension.zip', 'SHA256SUMS', 'provenance.txt', 'release-evidence.json']) {
   assert.ok(candidateWorkflow.includes(`dist/${asset}`), `${asset} must be published from dist/`);
 }
 
 const verifyWorkflow = read('.github/workflows/verify-release.yml');
 assert.match(verifyWorkflow, /permissions:\n\s+contents: read/);
 assert.match(verifyWorkflow, /push:\n\s+branches: \[main\]/);
-assert.doesNotMatch(verifyWorkflow, /pull_request:|statuses:\s*write|MarketTrat verification/);
+assert.doesNotMatch(verifyWorkflow, /pull_request:|statuses:\s*write|Куплено verification/);
 assert.doesNotMatch(verifyWorkflow, /contents:\s*write|gh release|softprops\/action-gh-release/i);
 
 const codeqlWorkflow = read('.github/workflows/codeql.yml');
@@ -149,7 +163,7 @@ for (const hash of vendoredCheck.match(/[0-9a-f]{64}/g) || []) {
 }
 
 assert.equal(
-  fs.existsSync(path.join(root, 'markettrat-extension.zip')),
+  fs.existsSync(path.join(root, 'kupleno-extension.zip')),
   false,
   'obsolete root archive must not exist; build only into dist/'
 );

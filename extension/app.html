@@ -3,16 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MarketTrat</title>
+  <title>Куплено</title>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
   <a id="skipLink" class="skip-link" href="#analyticsView">Перейти к содержимому</a>
   <main id="mainContent">
     <header class="topbar">
-      <div>
-        <h1>MarketTrat</h1>
-        <p>Собирает покупки из маркетплейсов в один отчёт: куда ушли деньги, что определилось неточно и какие возвраты ещё не пришли.</p>
+      <div class="brand-lockup">
+        <img class="brand-mark" src="icons/icon-48.png" width="48" height="48" alt="">
+        <div>
+          <h1>Куплено</h1>
+          <p>Покупки и возвраты с маркетплейсов — в одном понятном отчёте.</p>
+        </div>
       </div>
       <div class="top-actions">
         <button id="themeToggle" type="button" class="secondary theme-toggle" aria-label="Тёмная тема"></button>
@@ -22,22 +25,14 @@
 
     <section id="onboardingPanel" class="onboarding-panel" hidden aria-labelledby="onboardingTitle">
       <div class="onboarding-copy">
-        <span class="local-badge">Хранится на вашем устройстве</span>
-        <h2 id="onboardingTitle">Посмотрите, куда уходят деньги на маркетплейсах</h2>
-        <p>Отметьте ниже магазины, где вы уже вошли в аккаунт. MarketTrat соберёт суммы, категории и возвраты, не отправляя историю покупок наружу.</p>
+        <span class="local-badge">Ваши данные остаются здесь</span>
+        <h2 id="onboardingTitle">Все покупки — в одной понятной картине</h2>
+        <p>Выберите ниже магазины, где вы уже вошли. Куплено соберёт суммы, категории и возвраты, не отправляя историю покупок наружу.</p>
       </div>
       <ol class="onboarding-points">
-        <li><strong>Выберите</strong><span>Только магазины, которыми пользуетесь.</span></li>
-        <li><strong>Разрешите</strong><span>Браузер спросит доступ только к ним.</span></li>
+        <li><strong>Без аккаунта</strong><span>Работает с уже открытыми магазинами.</span></li>
+        <li><strong>Без облака</strong><span>История остаётся в этом браузере.</span></li>
       </ol>
-      <div class="onboarding-actions">
-        <button id="onboardingStart" type="button" disabled>Собрать мои покупки</button>
-        <button id="onboardingDemo" type="button" class="tertiary-button">Сначала посмотреть пример</button>
-        <details class="onboarding-alternative">
-          <summary>Уже есть таблица?</summary>
-          <button id="onboardingUpload" type="button" class="secondary">Загрузить CSV</button>
-        </details>
-      </div>
     </section>
 
     <section id="demoBanner" class="demo-banner" hidden aria-labelledby="demoBannerTitle">
@@ -79,14 +74,14 @@
         <span class="source-permission-note">Выберите хотя бы один магазин. Если вход не выполнен, откройте его сайт и войдите.</span>
         <details class="permission-details">
           <summary>Зачем браузер просит доступ?</summary>
-          <p>Только чтобы по вашей команде прочитать заказы на отмеченных сайтах. Для Wildberries нужен также доступ к его cookie входа. Пароли MarketTrat не читает. Доступ можно отозвать в разделе «Настройки».</p>
+          <p>Только чтобы по вашей команде прочитать заказы на отмеченных сайтах. Для Wildberries нужен также доступ к его cookie входа. Пароли Куплено не читает. Доступ можно отозвать в разделе «Настройки».</p>
         </details>
       </section>
 
       <section class="status">
         <div id="statusText" role="status" aria-live="polite">Можно начинать.</div>
         <progress id="progress" value="0" max="1"></progress>
-        <p id="collectHint" class="collect-hint" hidden>Сбор может занять несколько минут. Страницу можно закрыть: при следующем открытии MarketTrat продолжит ждать результат.</p>
+        <p id="collectHint" class="collect-hint" hidden>Сбор может занять несколько минут. Страницу можно закрыть: при следующем открытии Куплено продолжит ждать результат.</p>
         <div id="sourceStatuses" class="source-statuses" hidden></div>
       </section>
 
@@ -106,18 +101,27 @@
       </section>
     </div>
 
+    <div class="onboarding-actions">
+      <button id="onboardingStart" type="button" disabled>Собрать покупки</button>
+      <button id="onboardingDemo" type="button" class="tertiary-button">Посмотреть пример</button>
+      <details class="onboarding-alternative">
+        <summary>Уже есть таблица?</summary>
+        <button id="onboardingUpload" type="button" class="secondary">Загрузить CSV</button>
+      </details>
+    </div>
+
     <section id="updateBanner" class="update-banner" hidden></section>
 
     <nav class="view-tabs" aria-label="Разделы" role="tablist">
-      <button class="tab-button active" type="button" data-view="analytics" role="tab" aria-controls="analyticsView" aria-selected="true">Главное</button>
+      <button class="tab-button active" type="button" data-view="analytics" role="tab" aria-controls="analyticsView" aria-selected="true">Отчёт</button>
       <button class="tab-button" type="button" data-view="categories" role="tab" tabindex="-1" aria-controls="categoriesView" aria-selected="false">Категории <span id="categoryReviewBadge" class="tab-badge" hidden>0</span></button>
-      <button class="tab-button" type="button" data-view="control" role="tab" tabindex="-1" aria-controls="controlView" aria-selected="false">Советы <span id="controlBadge" class="tab-badge" hidden>0</span></button>
+      <button class="tab-button" type="button" data-view="control" role="tab" tabindex="-1" aria-controls="controlView" aria-selected="false">Проверить <span id="controlBadge" class="tab-badge" hidden>0</span></button>
       <button class="tab-button" type="button" data-view="data" role="tab" tabindex="-1" aria-controls="dataView" aria-selected="false">Настройки</button>
     </nav>
 
-    <section id="analyticsView" class="analytics view-panel active" role="tabpanel" tabindex="-1" aria-label="Главное" aria-hidden="false">
+    <section id="analyticsView" class="analytics view-panel active" role="tabpanel" tabindex="-1" aria-label="Отчёт" aria-hidden="false">
       <div class="analytics-titlebar">
-        <h2>Главное</h2>
+        <h2>Ваши покупки</h2>
         <details class="analytics-filter-details">
           <summary>Период и фильтры</summary>
           <div class="analytics-controls">
@@ -217,6 +221,13 @@
         </div>
       </section>
 
+      <div class="analytics-kpis">
+        <div><strong id="analyticsTotal">0</strong><span id="analyticsTotalLabel">потрачено</span><small id="analyticsTotalCompare"></small></div>
+        <div><strong id="analyticsAverage">0</strong><span id="analyticsAverageLabel">в среднем за месяц</span></div>
+        <div><strong id="analyticsRefunds">0</strong><span>возвращено</span></div>
+        <div><strong id="analyticsPurchases">0</strong><span id="analyticsPurchasesLabel">операций</span></div>
+      </div>
+
       <div class="analytics-layout">
         <div class="analytics-main">
           <div class="chart-panel spend-dynamics-panel">
@@ -236,6 +247,7 @@
               </div>
             </div>
             <svg id="periodChart" viewBox="0 0 960 300" role="img" aria-label="График расходов по периодам"></svg>
+            <div id="periodChartLegend" class="chart-legend" aria-label="Обозначения графика"></div>
           </div>
           <div class="chart-panel">
             <div class="panel-head">
@@ -265,24 +277,17 @@
         </div>
         <div class="analytics-side">
           <div class="chart-panel">
-            <h3>Топ трат</h3>
+            <h3>Самые крупные покупки</h3>
             <p class="card-hint">Нажмите товар, чтобы увидеть все связанные операции.</p>
             <ol id="topItems" class="top-items"></ol>
           </div>
         </div>
       </div>
 
-      <div class="analytics-kpis">
-        <div><strong id="analyticsTotal">0</strong><span id="analyticsTotalLabel">итого, ₽</span><small id="analyticsTotalCompare"></small></div>
-        <div><strong id="analyticsAverage">0</strong><span id="analyticsAverageLabel">в среднем за месяц</span></div>
-        <div><strong id="analyticsRefunds">0</strong><span>возвраты, ₽</span></div>
-        <div><strong id="analyticsPurchases">0</strong><span id="analyticsPurchasesLabel">операций</span></div>
-      </div>
-
       <section id="actionSummary" class="chart-panel action-summary" hidden aria-labelledby="actionSummaryTitle">
         <div class="panel-head">
           <div>
-            <h3 id="actionSummaryTitle">Изменения в расходах</h3>
+            <h3 id="actionSummaryTitle">Что изменилось</h3>
             <p class="card-hint">Сравниваем выбранный период с предыдущим. Для всего периода — два последних месяца. Нажмите карточку, чтобы увидеть связанные покупки.</p>
           </div>
         </div>
@@ -301,8 +306,8 @@
       <details id="analyticsDetails" class="chart-panel disclosure-card analytics-more">
         <summary id="toggleAnalyticsDetails" class="analytics-details-toggle" aria-expanded="false">
           <span>
-            <strong>Операции и дополнительные данные</strong>
-            <small>Все покупки, магазины, бюджет и проверка полноты сбора.</small>
+            <strong>Все покупки и подробности</strong>
+            <small>Операции, магазины, бюджет и проверка полноты сбора.</small>
           </span>
         </summary>
         <div class="disclosure-body analytics-more-body">
@@ -430,7 +435,7 @@
     <section id="categoriesView" class="category-review-view view-panel" role="tabpanel" tabindex="-1" inert aria-label="Категории покупок" aria-hidden="true">
       <div class="data-titlebar category-review-titlebar">
         <div>
-          <h2>Уточнить категории</h2>
+          <h2>Категории покупок</h2>
           <p>Отчёт уже готов — разбирать всю историю не нужно. Если захотите повысить точность, исправьте несколько самых заметных групп: одно решение применяется ко всем похожим покупкам.</p>
         </div>
         <button id="reviewAllCategories" type="button" class="secondary">Посмотреть все категории</button>
@@ -446,11 +451,11 @@
       <button id="categoryReviewMore" type="button" class="secondary detail-more" hidden>Показать ещё 5 — необязательно</button>
     </section>
 
-    <section id="controlView" class="control-view view-panel" role="tabpanel" tabindex="-1" inert aria-label="Советы по покупкам" aria-hidden="true">
+    <section id="controlView" class="control-view view-panel" role="tabpanel" tabindex="-1" inert aria-label="Что стоит проверить" aria-hidden="true">
       <div class="data-titlebar control-titlebar">
         <div>
-          <h2>Советы по покупкам</h2>
-          <p>Подсказки для проверки, регулярные покупки, возвраты и гарантии. Всё считается по вашей истории на этом устройстве.</p>
+          <h2>Что стоит проверить</h2>
+          <p>Возможные повторы, изменения цены, возвраты и гарантии. Решения всегда остаются за вами.</p>
         </div>
         <span class="local-badge">Без внешних сервисов</span>
       </div>
@@ -492,7 +497,7 @@
           <summary class="panel-head">
             <div>
               <strong id="recurringTitle">Регулярные покупки</strong>
-              <small>MarketTrat замечает повторы, а вы решаете, действительно ли это регулярный расход.</small>
+              <small>Куплено замечает повторы, а вы решаете, действительно ли это регулярный расход.</small>
             </div>
             <span id="recurringSummary"></span>
           </summary>
@@ -542,10 +547,10 @@
       </div>
     </section>
 
-    <section id="dataView" class="data-view view-panel" role="tabpanel" tabindex="-1" inert aria-label="Настройки и файлы" aria-hidden="true">
+    <section id="dataView" class="data-view view-panel" role="tabpanel" tabindex="-1" inert aria-label="Данные и настройки" aria-hidden="true">
       <div class="data-titlebar">
         <div>
-          <h2>Настройки и файлы</h2>
+          <h2>Данные и настройки</h2>
           <p>Здесь можно сохранить копию, разделить покупки и изменить свои правила.</p>
         </div>
         <button id="openDiagnostics" type="button" class="secondary">Помощь при ошибке <span id="logBadge" class="tab-badge" hidden>0</span></button>
@@ -556,7 +561,7 @@
         <div>
           <span class="local-badge">Хранится локально</span>
           <h3 id="localPrivacyTitle">История остаётся на этом устройстве</h3>
-          <p>Во время запущенного вами сбора MarketTrat читает заказы на выбранных сайтах. История, профили и правила сохраняются в этом браузере. Скачанный вами файл окажется там, куда вы сами его сохраните или отправите.</p>
+          <p>Во время запущенного вами сбора Куплено читает заказы на выбранных сайтах. История, профили и правила сохраняются в этом браузере. Скачанный вами файл окажется там, куда вы сами его сохраните или отправите.</p>
           <button id="revokeSourcePermissions" type="button" class="secondary">Отозвать доступ к маркетплейсам</button>
         </div>
       </section>
@@ -768,7 +773,7 @@
         </label>
         <label class="check">
           <input id="markRefundClaim" type="checkbox">
-          <span><strong>Жду возврат денег</strong><small>MarketTrat будет искать подходящий возврат в новых данных.</small></span>
+          <span><strong>Жду возврат денег</strong><small>Куплено будет искать подходящий возврат в новых данных.</small></span>
         </label>
         <label class="check operation-apply-similar">
           <input id="operationApplySimilar" type="checkbox">

@@ -1,7 +1,7 @@
 (function exposeReportQuality(root, factory) {
   const exported = factory();
   if (typeof module === 'object' && module.exports) module.exports = exported;
-  if (root) root.MarketTratReportQuality = exported;
+  if (root) root.KuplenoReportQuality = exported;
 })(typeof globalThis !== 'undefined' ? globalThis : this, () => {
   'use strict';
 

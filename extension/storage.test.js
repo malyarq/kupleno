@@ -147,7 +147,7 @@ assert.throws(() => parseBackup('{'), /некорректный JSON/);
 assert.throws(() => parseBackup('[]'), /Некорректный формат/);
 assert.throws(
   () => parseBackup(JSON.stringify({ ...JSON.parse(backupText), format: 'another-format' })),
-  /не является резервной копией MarketTrat/
+  /не является резервной копией Куплено/
 );
 assert.throws(
   () => parseBackup(JSON.stringify({ ...JSON.parse(backupText), version: BACKUP_VERSION + 1 })),

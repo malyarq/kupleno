@@ -22,7 +22,7 @@ function withinViewport(box, viewport) {
     && box.x + box.width <= viewport.width + 1;
 }
 
-function csvFile(rows, name = 'markettrat-smoke.csv') {
+function csvFile(rows, name = 'kupleno-smoke.csv') {
   const headers = ['date', 'marketplace', 'title', 'amount', 'currency', 'category', 'type', 'marketplace_id', 'item_index', 'profile', 'note', 'excluded'];
   const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
   return {
@@ -57,7 +57,7 @@ function performanceImport(size = 10_000) {
     profile: 'personal',
     note: '',
     excluded: 'false'
-  })), 'markettrat-performance.csv');
+  })), 'kupleno-performance.csv');
 }
 
 async function openDetails(page, selector) {
@@ -69,7 +69,7 @@ async function openDetails(page, selector) {
 }
 
 async function main() {
-  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'markettrat-browser-'));
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kupleno-browser-'));
   let context;
   const browserErrors = [];
   const externalRequests = [];
@@ -87,7 +87,7 @@ async function main() {
       const url = request.url();
       if (/^https?:/u.test(url)) externalRequests.push(url);
     });
-    await context.route('https://api.github.com/repos/malyarq/market-trat/releases/latest', (route) => route.fulfill({
+    await context.route('https://api.github.com/repos/malyarq/kupleno/releases/latest', (route) => route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ tag_name: `v${manifest.version}` })
@@ -106,8 +106,8 @@ async function main() {
 
     await page.goto(`chrome-extension://${extensionId}/app.html`);
     await page.locator('#onboardingPanel').waitFor({ state: 'visible' });
-    assert.equal(await page.title(), 'MarketTrat');
-    assert.equal(await page.locator('#onboardingTitle').textContent(), 'Посмотрите, куда уходят деньги на маркетплейсах');
+    assert.equal(await page.title(), 'Куплено');
+    assert.equal(await page.locator('#onboardingTitle').textContent(), 'Все покупки — в одной понятной картине');
     assert.equal(await page.locator('#onboardingStart').isDisabled(), true);
     assert.equal(await page.locator('#collect').isVisible(), false, 'верхняя кнопка не должна дублировать первый запуск');
     assert.equal(await page.locator('.run-details .status').isVisible(), false, 'пустой прогресс не должен отвлекать');
@@ -130,7 +130,7 @@ async function main() {
     assert.equal(await page.locator('#onboardingStart').isEnabled(), true);
     const sourcesBox = await page.locator('.sources').boundingBox();
     const startBox = await page.locator('#onboardingStart').boundingBox();
-    assert.ok(sourcesBox && startBox && startBox.y < sourcesBox.y, 'главная кнопка должна идти до выбора магазинов');
+    assert.ok(sourcesBox && startBox && startBox.y > sourcesBox.y, 'главная кнопка должна идти после выбора магазинов');
     await page.screenshot({ path: path.join(outputDir, 'first-run-desktop.png'), fullPage: true });
 
     await page.setViewportSize({ width: 390, height: 844 });
@@ -197,6 +197,13 @@ async function main() {
     assert.equal(await page.locator('.detail-panel').isVisible(), false, 'таблица операций не должна перегружать главный экран');
     assert.equal(await page.locator('#topItems .top-item').count(), 3, 'одинаковые товары в примере не должны дробиться из-за служебной пометки');
     await page.screenshot({ path: path.join(outputDir, 'example-desktop.png'), fullPage: true });
+    await page.locator('#themeToggle').click();
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark', 'тёмная тема должна включаться без перезагрузки');
+    await page.waitForTimeout(250);
+    await page.screenshot({ path: path.join(outputDir, 'example-dark-desktop.png'), fullPage: true });
+    await page.locator('#themeToggle').click();
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'light', 'светлая тема должна восстанавливаться');
+    await page.waitForTimeout(250);
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('#analyticsView').scrollIntoViewIfNeeded();
@@ -224,7 +231,7 @@ async function main() {
     await page.locator('#onboardingPanel').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#demoBanner').isVisible(), false);
     assert.match(await page.locator('#downloadCsv').textContent(), /\(0\)/u, 'выход из примера должен вернуть пустую реальную базу');
-    assert.equal(await page.evaluate(() => localStorage.getItem('markettrat-onboarding-v2')), null, 'пример не должен завершать первый запуск');
+    assert.equal(await page.evaluate(() => localStorage.getItem('kupleno-onboarding-v2')), null, 'пример не должен завершать первый запуск');
 
     await page.reload();
     await page.locator('#onboardingPanel').waitFor({ state: 'visible' });
@@ -252,7 +259,7 @@ async function main() {
     const extrasBox = await page.locator('#analyticsDetails').boundingBox();
     assert.ok(chartBox && extrasBox && chartBox.y < extrasBox.y, 'сначала должен идти основной график, затем дополнительные данные');
     const kpisBox = await page.locator('.analytics-kpis').boundingBox();
-    assert.ok(chartBox && kpisBox && chartBox.y < kpisBox.y, 'график должен идти до карточек с итогами');
+    assert.ok(chartBox && kpisBox && kpisBox.y < chartBox.y, 'сначала должны идти итоговые цифры, затем график');
 
     await page.evaluate(() => {
       const synthetic = Array.from({ length: 1000 }, (_, index) => ({
@@ -381,9 +388,9 @@ async function main() {
     await page.evaluate(() => {
       const originalPut = IDBObjectStore.prototype.put;
       let injected = false;
-      globalThis.__marketTratRestorePut = () => {
+      globalThis.__kuplenoRestorePut = () => {
         IDBObjectStore.prototype.put = originalPut;
-        delete globalThis.__marketTratRestorePut;
+        delete globalThis.__kuplenoRestorePut;
       };
       IDBObjectStore.prototype.put = function failNextSnapshotPut(...args) {
         if (!injected && this.name === 'snapshots') {
@@ -401,7 +408,7 @@ async function main() {
       0,
       'при сбое IndexedDB интерфейс должен откатить несохранённое изменение'
     );
-    await page.evaluate(() => globalThis.__marketTratRestorePut?.());
+    await page.evaluate(() => globalThis.__kuplenoRestorePut?.());
 
     await page.locator('[data-view="analytics"]').click();
     await openDetails(page, '#analyticsDetails');
@@ -427,7 +434,7 @@ async function main() {
     const interruptedJobId = 'smoke-interrupted';
     await worker.evaluate(async ({ jobId }) => {
       await chrome.storage.session.set({
-        [`markettrat-collect-job-v1:${jobId}`]: {
+        [`kupleno-collect-job-v1:${jobId}`]: {
           owner: 'previous-worker',
           status: 'running',
           error: '',
@@ -435,7 +442,7 @@ async function main() {
         }
       });
     }, { jobId: interruptedJobId });
-    await page.evaluate(({ jobId }) => localStorage.setItem('markettrat-active-collect-job-v1', jobId), { jobId: interruptedJobId });
+    await page.evaluate(({ jobId }) => localStorage.setItem('kupleno-active-collect-job-v1', jobId), { jobId: interruptedJobId });
     await page.reload();
     await page.waitForFunction(() => document.querySelector('#statusText')?.textContent?.includes('Найден предыдущий'));
     assert.match(await page.locator('#downloadCsv').textContent(), /\(3\)/u, 'перезапуск не должен терять импорт');
@@ -580,7 +587,7 @@ async function main() {
 
     assert.deepEqual(browserErrors, []);
     assert.deepEqual(
-      [...new Set(externalRequests.filter((url) => url !== 'https://api.github.com/repos/malyarq/market-trat/releases/latest'))],
+      [...new Set(externalRequests.filter((url) => url !== 'https://api.github.com/repos/malyarq/kupleno/releases/latest'))],
       [],
       'чистый запуск не должен обращаться к посторонним адресам'
     );

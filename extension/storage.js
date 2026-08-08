@@ -1,15 +1,16 @@
-(function initMarketTratStorage(root, factory) {
+(function initKuplenoStorage(root, factory) {
   const storage = factory(root);
 
   if (typeof module === 'object' && module.exports) module.exports = storage;
-  if (root) root.MarketTratStorage = storage;
+  if (root) root.KuplenoStorage = storage;
 })(typeof globalThis !== 'undefined' ? globalThis : this, (root) => {
   'use strict';
 
-  const DB_NAME = 'markettrat-storage-v1';
+  // Постоянные идентификаторы Куплено. Менять только вместе с версией схемы и миграцией.
+  const DB_NAME = 'kupleno-storage-v1';
   const DB_VERSION = 1;
   const SNAPSHOT_VERSION = 1;
-  const BACKUP_FORMAT = 'markettrat-backup';
+  const BACKUP_FORMAT = 'kupleno-backup';
   const BACKUP_VERSION = 1;
   const HISTORY_LIMIT = 12;
   const MAX_ROWS = 100000;
@@ -299,7 +300,7 @@
       throw new Error('Не удалось прочитать резервную копию: некорректный JSON.');
     }
     if (!isPlainObject(parsed)) throw new Error('Некорректный формат резервной копии.');
-    if (parsed.format !== BACKUP_FORMAT) throw new Error('Файл не является резервной копией MarketTrat.');
+    if (parsed.format !== BACKUP_FORMAT) throw new Error('Файл не является резервной копией Куплено.');
     if (parsed.version !== BACKUP_VERSION) {
       throw new Error(`Версия резервной копии ${String(parsed.version)} не поддерживается.`);
     }
@@ -346,7 +347,7 @@
   function openDatabase(indexedDb, dbName) {
     if (!indexedDb || typeof indexedDb.open !== 'function') {
       throw new Error(
-        'IndexedDB недоступен в этом окружении. Откройте MarketTrat в установленном браузерном расширении.'
+        'IndexedDB недоступен в этом окружении. Откройте Куплено в установленном браузерном расширении.'
       );
     }
 
