@@ -4,6 +4,15 @@
   window.__marketplaceSpendExporterInjected = contentScriptVersion;
 
   const api = globalThis.chrome;
+  const maxCollectedRows = 100000;
+
+  function assertCollectedRowLimit(rowCount) {
+    if (rowCount > maxCollectedRows) {
+      const error = new RangeError(`Сбор остановлен: найдено больше ${maxCollectedRows.toLocaleString('ru-RU')} операций. Прежний отчёт не изменён.`);
+      error.code = 'ROW_LIMIT_EXCEEDED';
+      throw error;
+    }
+  }
 
   function sendProgress(message, value = null, max = null) {
     try {
@@ -379,6 +388,36 @@
     return '';
   }
 
+  function ozonReceiptIdFromUrl(receiptUrl) {
+    const value = String(receiptUrl || '').trim();
+    if (!value) return '';
+    try {
+      const url = new URL(value, 'https://www.ozon.ru');
+      for (const [key, candidate] of url.searchParams) {
+        if (/^(?:id|chequeid|checkid|receiptid)$/i.test(key) && candidate) return candidate;
+      }
+    } catch {
+      // Оставляем запасной разбор для ссылок с повреждённым экранированием.
+    }
+    const match = value.match(/[?&](?:id|chequeid|checkid|receiptid)=([^&#]+)/i);
+    if (!match) return '';
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+
+  function ozonOrderIdFromReceiptId(receiptId) {
+    return String(receiptId || '').match(
+      /^(.+?)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:-\d+-\d+)?$/i
+    )?.[1] || '';
+  }
+
+  function ozonOrderIdFromText(text) {
+    return String(text || '').match(/Заказ\s*№\s*(\S+)/iu)?.[1] || '';
+  }
+
   function extractOzonAmountFromLine(line) {
     const match = String(line || '').match(/≡\s*(-?\d[\d\s]*(?:[,.]\d{1,2})?)/i);
     return match ? amountFromText(match[1]) : 0;
@@ -408,6 +447,7 @@
       raw_title: fallbackRecord.raw_title || fallbackRecord.title || '',
       raw_amount: String(item.amount),
       item_index: String(item.itemIndex || ''),
+      ozon_order_id: fallbackRecord.ozon_order_id || '',
       __ozonSettlementKind: settlementKind || '',
       parse_quality: 'complete'
     };
@@ -436,11 +476,13 @@
   }
 
   function ozonOrderKey(row) {
-    const rawTitleMatch = String(row?.raw_title || '').match(/Заказ\s*№\s*(\S+)/iu);
-    if (rawTitleMatch) return rawTitleMatch[1];
-    const receiptId = String(row?.receipt_url || '').match(/[?&]id=([^&]+)/)?.[1] || row?.marketplace_id || '';
-    const idPrefixMatch = String(receiptId).match(/^(.+?)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:-\d+-\d+)?$/i);
-    if (idPrefixMatch) return idPrefixMatch[1];
+    const explicitOrderId = String(row?.ozon_order_id || '').trim();
+    if (explicitOrderId) return explicitOrderId;
+    const titleOrderId = ozonOrderIdFromText(row?.raw_title);
+    if (titleOrderId) return titleOrderId;
+    const receiptId = ozonReceiptIdFromUrl(row?.receipt_url) || row?.marketplace_id || '';
+    const receiptOrderId = ozonOrderIdFromReceiptId(receiptId);
+    if (receiptOrderId) return receiptOrderId;
     return row?.receipt_url || row?.marketplace_id || '';
   }
 
@@ -596,6 +638,38 @@
         if (ozonReceiptKey(match)) supersededReceipts.add(ozonReceiptKey(match));
       }
 
+      const unresolvedReceipts = new Map();
+      for (const row of orderRows) {
+        const receiptKey = ozonReceiptKey(row);
+        if (!receiptKey || row.__ozonSettlementKind) continue;
+        if (!unresolvedReceipts.has(receiptKey)) unresolvedReceipts.set(receiptKey, []);
+        unresolvedReceipts.get(receiptKey).push(row);
+      }
+      const suppressedUnresolvedRows = new Set();
+      const candidates = [...unresolvedReceipts.values()]
+        .filter((receiptRows) => receiptRows.every((row) => row.parse_quality !== 'fallback' && ozonAmountCents(row.amount) > 0))
+        .sort((left, right) => latestDate(right).localeCompare(latestDate(left)));
+
+      for (const receiptRows of candidates) {
+        const matchedFullRows = [];
+        for (const row of receiptRows) {
+          const match = fullRows.find((fullRow) => (fullAvailableCents.get(fullRow) || 0) > 0
+            && !matchedFullRows.includes(fullRow)
+            && String(fullRow.date || '') >= String(row.date || '')
+            && ozonSettlementRowKey(fullRow) === ozonSettlementRowKey(row));
+          if (!match) {
+            matchedFullRows.length = 0;
+            break;
+          }
+          matchedFullRows.push(match);
+        }
+        if (matchedFullRows.length !== receiptRows.length) continue;
+        for (const row of receiptRows) suppressedUnresolvedRows.add(row);
+        for (const fullRow of matchedFullRows) fullAvailableCents.set(fullRow, 0);
+        duplicateRowsDropped += receiptRows.length;
+        supersededReceipts.add(ozonReceiptKey(receiptRows[0]));
+      }
+
       const fallbackResiduals = new Map(orderRows
         .filter((row) => row.parse_quality === 'fallback'
           && row.__ozonSettlementKind === 'prepayment'
@@ -619,7 +693,7 @@
       }
 
       for (const row of orderRows) {
-        if (suppressedPrepaymentRows.has(row)) continue;
+        if (suppressedPrepaymentRows.has(row) || suppressedUnresolvedRows.has(row)) continue;
         if (fallbackResiduals.has(row)) {
           const originalCents = ozonAmountCents(row.amount);
           const residualCents = fallbackResiduals.get(row);
@@ -726,6 +800,7 @@
   }
 
   async function rowsFromOzonPdfs(records, parsePdf, concurrencyOption) {
+    assertCollectedRowLimit(records.length);
     if (!parsePdf) {
       return {
         rows: records.map((record) => ozonUnparsedRow(record, 'pdf_parsing_disabled')),
@@ -743,11 +818,14 @@
     let parsedReceipts = 0;
     let unverifiedReceipts = 0;
     let completed = 0;
+    let rawItemRows = records.length;
     sendProgress(`Ozon: PDF-разбор в ${concurrency} потока.`, 0, records.length);
 
     const results = await mapWithConcurrency(records, concurrency, async (record) => {
       try {
         const parsed = await recordsFromOzonPdf(record);
+        rawItemRows += Math.max(0, parsed.length - 1);
+        assertCollectedRowLimit(rawItemRows);
         if (parsed.length && !parsed.some((row) => row.parse_quality === 'fallback')) {
           parsedReceipts += 1;
           if (parsed.some((row) => row.parse_quality === 'unverified')) unverifiedReceipts += 1;
@@ -762,6 +840,7 @@
           return { rows: [ozonUnparsedRow(record, failedItem.reason)] };
         }
       } catch (error) {
+        if (error instanceof RangeError) throw error;
         const failedItem = { record, reason: error.message };
         failed.push(failedItem);
         return { rows: [ozonUnparsedRow(record, failedItem.reason)] };
@@ -836,12 +915,8 @@
     const baseAmount = amountFromText(rawAmount);
     const isReturn = isReturnLike(title, rawDate, rawAmount);
     const amount = isReturn ? -Math.abs(baseAmount) : baseAmount;
-    let id = '';
-    try {
-      id = new URL(receiptUrl).searchParams.get('id') || '';
-    } catch {
-      id = '';
-    }
+    const id = ozonReceiptIdFromUrl(receiptUrl);
+    const orderId = ozonOrderIdFromText(title) || ozonOrderIdFromReceiptId(id);
 
     return {
       source: 'ozon',
@@ -856,7 +931,8 @@
       marketplace_id: id,
       receipt_url: receiptUrl,
       raw_title: `${title} ${rawDate}`.trim(),
-      raw_amount: rawAmount
+      raw_amount: rawAmount,
+      ozon_order_id: orderId
     };
   }
 
@@ -958,7 +1034,7 @@
     let node = link;
     for (let depth = 0; depth < 8 && node; depth += 1) {
       const text = String(node.innerText || node.textContent || '').trim();
-      if (/Заказ №\S+/.test(text) && /\d{1,2}\s+[а-яё]+\s+\d{4}\s+в\s+\d{1,2}:\d{2}/i.test(text)) {
+      if (ozonOrderIdFromText(text) && /\d{1,2}\s+[а-яё]+\s+\d{4}\s+в\s+\d{1,2}:\d{2}/i.test(text)) {
         return text;
       }
       node = node.parentElement;
@@ -983,14 +1059,16 @@
       if (!receiptUrl) continue;
 
       const text = normalizeReceiptText(findOzonChequeTextNode(link));
-      const title = text.match(/Заказ №\S+/)?.[0] || 'Ozon cheque';
+      const visibleOrderId = ozonOrderIdFromText(text);
+      const title = visibleOrderId ? `Заказ №${visibleOrderId}` : 'Ozon cheque';
       const rawDate = text.match(/\d{1,2}\s+[а-яё]+\s+\d{4}\s+в\s+\d{1,2}:\d{2}/i)?.[0] || '';
       const rawAmount = (text.match(/-?\d[\d\s.,]*\s*₽/g) || []).at(-1) || '';
       const date = parseOzonDate(rawDate);
       const baseAmount = amountFromText(rawAmount);
       const isReturn = isReturnLike(title, rawDate, rawAmount);
       const amount = isReturn ? -Math.abs(baseAmount) : baseAmount;
-      const id = new URL(receiptUrl).searchParams.get('id') || '';
+      const id = ozonReceiptIdFromUrl(receiptUrl);
+      const orderId = ozonOrderIdFromText(title) || ozonOrderIdFromReceiptId(id);
 
       addRecord({
         source: 'ozon',
@@ -1005,7 +1083,8 @@
         marketplace_id: id,
         receipt_url: receiptUrl,
         raw_title: `${title} ${rawDate}`.trim(),
-        raw_amount: rawAmount
+        raw_amount: rawAmount,
+        ozon_order_id: orderId
       });
     }
 
@@ -1045,6 +1124,7 @@
         const key = ozonRecordKey(record);
         if (key && !recordsByKey.has(key)) recordsByKey.set(key, record);
       }
+      assertCollectedRowLimit(recordsByKey.size);
       return reachedKnownBoundary(
         records,
         (record) => known.has(String(record.marketplace_id || '').trim()) || known.has(String(record.receipt_url || '').trim()),
@@ -1282,6 +1362,7 @@
         const key = receipt.receiptUid || receipt.link;
         if (key) receiptsByUid.set(key, receipt);
       }
+      assertCollectedRowLimit(receiptsByUid.size);
 
       sendProgress(`Wildberries: найдено чеков ${receiptsByUid.size}, API-страница ${pagesFetched}.`, pagesFetched, maxPages);
       if (reachedKnownBoundary(
@@ -1454,6 +1535,7 @@
     for (let round = 0; round < maxRounds; round += 1) {
       const before = orderIds.size;
       for (const id of collectYandexOrderIdsFromDom()) orderIds.add(id);
+      assertCollectedRowLimit(orderIds.size);
 
       const containers = yandexScrollContainers();
       const delta = Math.max(700, Math.floor((window.innerHeight || 900) * 0.9));
@@ -1466,6 +1548,7 @@
       await sleep(450);
 
       for (const id of collectYandexOrderIdsFromDom()) orderIds.add(id);
+      assertCollectedRowLimit(orderIds.size);
       const height = Math.max(...containers.map((item) => item.scrollHeight), document.body.scrollHeight, document.documentElement.scrollHeight);
       const changed = orderIds.size > before || height > previousHeight || clickedMore;
       stableRounds = changed ? 0 : stableRounds + 1;
@@ -1568,6 +1651,7 @@
 
     function rememberOrderIds(ids) {
       for (const id of ids) orderIds.add(id);
+      assertCollectedRowLimit(orderIds.size);
       return reachedKnownBoundary(ids, (id) => knownOrders.has(String(id || '').trim()), knownState, tailLimit);
     }
 
@@ -1605,6 +1689,7 @@
           pageToken = page.pageToken;
           if (apiPauseMs > 0) await sleep(apiPauseMs);
         } catch (error) {
+          if (error instanceof RangeError) throw error;
           paginationError = error.message;
           sendProgress(`Яндекс Маркет: пагинация недоступна, беру найденные заказы (${error.message}).`);
           break;
@@ -1615,6 +1700,7 @@
 
     if (!orderIds.size || paginationError) {
       for (const id of await scrollYandexOrders(Math.min(maxPages, 200))) orderIds.add(id);
+      assertCollectedRowLimit(orderIds.size);
     }
 
     if (!orderIds.size) {
@@ -1669,6 +1755,7 @@
           } else {
             if (result.archived) archivedOrders += 1;
             for (const receipt of result.receipts) receiptsByUrl.set(receipt.fiscalUrl, receipt);
+            assertCollectedRowLimit(receiptsByUrl.size);
             failedByOrder.delete(result.orderId);
             pendingOrderIds.delete(result.orderId);
             completed += 1;
@@ -1745,7 +1832,11 @@
 
     promise
       .then((result) => sendResponse({ ok: true, ...result }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
+      .catch((error) => sendResponse({
+        ok: false,
+        error: error.message,
+        code: String(error?.code || '')
+      }));
 
     return true;
   });
@@ -1756,7 +1847,8 @@
       foldDeliveryIntoRows,
       parseOzonPdfRows,
       extractYandexPageTokenFromHtml,
-      hasYandexNextOrdersPage
+      hasYandexNextOrdersPage,
+      assertCollectedRowLimit
     });
   }
 })();

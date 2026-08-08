@@ -17,6 +17,7 @@
   const MAX_RECENT_DUPLICATE_CANDIDATES = 8;
   const DEFAULT_MAX_ANOMALIES = 50;
   const DEFAULT_RECENT_DAYS = 180;
+  const MIN_DUPLICATE_AMOUNT = 100;
   const STOP_WORDS = new Set([
     'и', 'в', 'во', 'на', 'для', 'с', 'со', 'по', 'от', 'до', 'из', 'за', 'при', 'без', 'под',
     'the', 'a', 'an', 'of', 'and', 'with', 'for', 'to', 'in', 'new', 'товар', 'набор', 'штука',
@@ -24,9 +25,9 @@
     'белый', 'белая', 'белое', 'черный', 'черная', 'черное', 'чёрный', 'чёрная', 'чёрное',
     'мужской', 'мужская', 'мужское', 'женский', 'женская', 'женское'
   ]);
-  const SERVICE_TITLE = /^(?:работа сервиса|комиссия сервиса)$|(?:^|\s)(?:доставка|доставк[аиу]|комисси[яию]|сервис(?:ный|ная|ный сбор)?|service\s*fee|delivery|shipping)(?:\s|$)/iu;
+  const SERVICE_TITLE = /^(?:работа сервиса|комиссия сервиса|таможенный платеж|предоставление упаковки)$|(?:^|\s)(?:доставка|доставк[аиу]|комисси[яию]|сервис(?:ный|ная|ный сбор)?|service\s*fee|delivery|shipping)(?:\s|$)/iu;
   const REFUND_TYPE = /refund|return|возврат/u;
-  const QUANTITY_PATTERN = /(\d+(?:[.,]\d+)?)\s*(кг|kg|г|gr|g|л|l|мл|ml|шт|pcs?|pc|уп|pack)(?=\s|$)/giu;
+  const QUANTITY_PATTERN = /(?:(\d+(?:[.,]\d+)?)\s*[*xх×]\s*)?(\d+(?:[.,]\d+)?)\s*(кг|kg|г|gr|g|л|l|мл|ml|шт|pcs?|pc|уп|pack|капсул(?:а|ы)?|таблет(?:ка|ки|ок))(?=\s|$)/giu;
 
   function own(value, key) {
     return Object.prototype.hasOwnProperty.call(value, key);
@@ -74,9 +75,10 @@
   function quantityFromTitle(title) {
     const matches = [...String(title ?? '').matchAll(QUANTITY_PATTERN)];
     if (matches.length !== 1) return { value: 1, unit: 'item', source: 'default' };
-    const rawValue = Number(matches[0][1].replace(',', '.'));
-    const descriptor = quantityUnit(matches[0][2]);
-    const value = rawValue * descriptor.multiplier;
+    const packCount = Number(String(matches[0][1] || '1').replace(',', '.'));
+    const rawValue = Number(matches[0][2].replace(',', '.'));
+    const descriptor = quantityUnit(matches[0][3]);
+    const value = packCount * rawValue * descriptor.multiplier;
     return Number.isFinite(value) && value > 0
       ? { value, unit: descriptor.unit, source: 'title' }
       : { value: 1, unit: 'item', source: 'default' };
@@ -107,10 +109,22 @@
     return source && receipt ? `${source}\u0001${receipt}` : '';
   }
 
+  function ozonOrderIdFromReceiptId(receiptId) {
+    return String(receiptId || '').match(
+      /^(.+?)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:-\d+-\d+)?$/i
+    )?.[1] || '';
+  }
+
   function marketplaceOrderIdentity(row) {
     const source = normalizeText(row.source ?? row.marketplace ?? '');
     if (source !== 'ozon') return '';
-    const order = String(row.raw_title ?? row.rawTitle ?? '').match(/Заказ\s*№\s*(\S+)/iu)?.[1] || '';
+    const explicit = String(row.ozon_order_id ?? row.ozonOrderId ?? '').trim();
+    const titleOrder = String(row.raw_title ?? row.rawTitle ?? '').match(/Заказ\s*№\s*(\S+)/iu)?.[1] || '';
+    const receiptUrl = String(row.receipt_url ?? row.receiptUrl ?? '');
+    const receiptId = receiptUrl.match(/[?&](?:id|chequeid|checkid|receiptid)=([^&#]+)/i)?.[1]
+      || row.marketplace_id
+      || '';
+    const order = explicit || titleOrder || ozonOrderIdFromReceiptId(receiptId);
     return order ? `${source}\u0001${order}` : '';
   }
 
@@ -283,14 +297,20 @@
   function buildPriceHistoryFromGroups(groups) {
     const histories = [];
     for (const group of groups) {
-      const byUnit = new Map();
+      const buckets = new Map();
       for (const entry of group.entries) {
         if (entry.refund) continue;
         const quantity = entry.identity.quantity;
         const unitPrice = entry.amount / quantity.value;
         if (!Number.isFinite(unitPrice)) continue;
-        const bucket = byUnit.get(quantity.unit) || [];
-        bucket.push({
+        const bucketKey = `${quantity.unit}\u0001${entry.identity.key}`;
+        const bucket = buckets.get(bucketKey) || {
+          unit: quantity.unit,
+          key: entry.identity.key,
+          name: entry.title,
+          observations: []
+        };
+        bucket.observations.push({
           rowIndex: entry.rowIndex,
           date: entry.date,
           day: entry.day,
@@ -299,9 +319,10 @@
           unitPrice: round(unitPrice, 4),
           quantitySource: quantity.source
         });
-        byUnit.set(quantity.unit, bucket);
+        buckets.set(bucketKey, bucket);
       }
-      for (const [unit, observations] of byUnit) {
+      for (const bucket of buckets.values()) {
+        const { unit, key, name, observations } = bucket;
         const points = sortedEntries(observations);
         const latest = points.at(-1);
         const previous = points.length > 1 ? points.at(-2) : null;
@@ -312,8 +333,8 @@
           + (titleQuantities === points.length ? 0.04 : 0), 0.42, 0.78), 2);
         histories.push({
           groupId: group.id,
-          key: group.key,
-          name: group.name,
+          key,
+          name,
           unit,
           observations: points.map(({ day, ...point }) => point),
           latestUnitPrice: latest.unitPrice,
@@ -412,6 +433,7 @@
           if (current.orderIdentity && current.orderIdentity === previous.orderIdentity) continue;
           const relativeDifference = Math.abs(current.amount - previous.amount) / Math.max(current.amount, previous.amount);
           if (relativeDifference > 0.03) continue;
+          if (Math.max(current.amount, previous.amount) < MIN_DUPLICATE_AMOUNT) continue;
           add({
             type: 'possible_duplicate',
             groupId: group.id,

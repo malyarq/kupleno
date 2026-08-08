@@ -7,6 +7,7 @@ if (typeof importScripts === 'function') {
 }
 
 const api = globalThis.chrome;
+const maxCollectedRows = 100000;
 const collectJobs = new Map();
 let collectJobGeneration = 0;
 const workerInstanceId = globalThis.crypto?.randomUUID?.()
@@ -23,6 +24,22 @@ const collectResultStorePromise = Promise.resolve(
   })
 );
 let collectJobPersistenceQueue = Promise.resolve();
+
+function assertCollectedRowLimit(rowCount) {
+  if (!Number.isSafeInteger(rowCount) || rowCount < 0) {
+    throw new TypeError('Сбор вернул некорректное число операций.');
+  }
+  if (rowCount > maxCollectedRows) {
+    const error = new RangeError(`Сбор остановлен: найдено больше ${maxCollectedRows.toLocaleString('ru-RU')} операций. Прежний отчёт не изменён.`);
+    error.code = 'ROW_LIMIT_EXCEEDED';
+    throw error;
+  }
+}
+
+function fatalCollectionError(results) {
+  return (results || []).find((item) => !item?.ok
+    && (item.error instanceof RangeError || item.error?.code === 'ROW_LIMIT_EXCEEDED'))?.error || null;
+}
 
 function createCollectJobId() {
   return globalThis.crypto?.randomUUID?.()
@@ -50,6 +67,8 @@ function persistCollectJob(jobId, job) {
       if (!job.result || typeof job.result !== 'object') {
         throw new Error('Готовый результат сбора повреждён.');
       }
+      if (!Array.isArray(job.result.rows)) throw new Error('Готовый результат сбора не содержит список операций.');
+      assertCollectedRowLimit(job.result.rows.length);
       try {
         await resultStore.save(jobId, job.result);
         await jobStore.save(jobId, job);
@@ -198,6 +217,8 @@ const progressSourceLabels = {
 async function trackSourceProgress(source, work) {
   try {
     const result = await work();
+    if (!Array.isArray(result.rows)) throw new Error(`${progressSourceLabels[source]}: сбор вернул повреждённый список операций.`);
+    assertCollectedRowLimit(result.rows.length);
     emitProgress(`${progressSourceLabels[source]}: готово, строк ${(result.rows || []).length}.`);
     return {
       source,
@@ -397,7 +418,9 @@ async function collectFromTab(source, options) {
     });
 
     if (!response?.ok) {
-      throw new Error(response?.error || `${source}: не удалось собрать данные`);
+      const error = new Error(response?.error || `${source}: не удалось собрать данные`);
+      error.code = String(response?.code || '');
+      throw error;
     }
 
     return response;
@@ -417,7 +440,9 @@ async function collectFromTabKeepOpen(source, options) {
       options
     });
     if (!response?.ok) {
-      throw new Error(response?.error || `${source}: не удалось собрать данные`);
+      const error = new Error(response?.error || `${source}: не удалось собрать данные`);
+      error.code = String(response?.code || '');
+      throw error;
     }
     return { response, managedTab };
   } catch (error) {
@@ -679,6 +704,7 @@ async function rowsFromWbReceipts(receipts, concurrencyOption) {
     if (rows.some((row) => row.parse_quality === 'unverified')) unverifiedReceipts += 1;
     completed += 1;
     itemRows += rows.length;
+    assertCollectedRowLimit(itemRows);
     if (completed === receipts.length || completed % 5 === 0) {
       emitProgress(
         `Wildberries: чеки ${completed}/${receipts.length}, строк ${itemRows}.`,
@@ -1184,6 +1210,7 @@ async function rowsFromYandexReceipts(receipts, concurrencyOption) {
   let parsedReceipts = 0;
   let fallbackReceipts = 0;
   let unverifiedReceipts = 0;
+  let itemRows = 0;
   emitProgress(`Яндекс Маркет: HTML-разбор в ${concurrency} потоков.`, 0, receipts.length);
 
   async function fetchYandexReceiptHtml(url) {
@@ -1202,6 +1229,8 @@ async function rowsFromYandexReceipts(receipts, concurrencyOption) {
     try {
       const html = await fetchYandexReceiptHtml(receipt.fiscalUrl);
       const rows = rowsFromYandexReceiptHtml(receipt, html);
+      itemRows += rows.length;
+      assertCollectedRowLimit(itemRows);
       if (rows.length && !rows.some((row) => row.parse_quality === 'fallback')) {
         parsedReceipts += 1;
         if (rows.some((row) => row.parse_quality === 'unverified')) unverifiedReceipts += 1;
@@ -1212,6 +1241,7 @@ async function rowsFromYandexReceipts(receipts, concurrencyOption) {
       }
       return rows;
     } catch (error) {
+      if (error instanceof RangeError) throw error;
       failed.push({ receipt, reason: error.message });
       return [];
     } finally {
@@ -1327,8 +1357,12 @@ async function collectSpend({ sources, options }) {
     .then((result) => ({ ok: true, result }))
     .catch((error) => ({ ok: false, error }))));
 
+  const fatalError = fatalCollectionError(results);
+  if (fatalError) throw fatalError;
+
   for (const item of results) {
     if (item.ok) {
+      assertCollectedRowLimit(rows.length + item.result.rows.length);
       rows.push(...item.result.rows);
       stats[item.result.source] = item.result.stats;
       for (const receipt of item.result.supersededReceipts || []) {
@@ -1511,6 +1545,8 @@ if (typeof module !== 'undefined') {
     isWildberriesReceiptsPageReady,
     wbOperationType,
     filterYandexRows,
-    rowsFromYandexReceiptHtml
+    rowsFromYandexReceiptHtml,
+    assertCollectedRowLimit,
+    fatalCollectionError
   };
 }

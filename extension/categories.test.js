@@ -162,6 +162,19 @@ assert.equal(weak.suggestedCategory, 'Дом');
 assert.equal(weak.needsReview, true);
 assert.ok(weak.confidence < 0.64);
 
+for (const [title, category, rejectedCategory] of [
+  ['платье для куклы', 'Игрушки', 'Одежда'],
+  ['игрушечные инструменты', 'Игрушки', 'Ремонт'],
+  ['витамины для собак', 'Зоотовары', 'Здоровье'],
+  ['тушь для принтера', 'Канцтовары', 'Красота и уход']
+]) {
+  const result = classifySpendCategory(title);
+  assert.equal(result.category, category, title);
+  assert.equal(result.needsReview, false, title);
+  assert.equal(result.candidates[0].category, category, title);
+  assert.ok(!result.candidates.some((item) => item.category === rejectedCategory && item.score > 0), title);
+}
+
 for (const [title, suggestion] of [
   ['Игрушка для кошки', 'Игрушки'],
   ['Кольцо для ключей', 'Украшения']
@@ -177,6 +190,12 @@ assert.deepEqual(classifySpendCategory('Подарочный набор'), {
   evidence: [], candidates: [], needsReview: true, method: 'lexicon-v2'
 });
 assert.equal(classifySpendCategory({ raw_title: 'чай зелёный' }).category, 'Продукты');
+assert.equal(
+  classifySpendCategory({ title: 'Симулякры и симуляции | Бодрийар Жан', raw_title: 'Заказ №123 1 января 2026' }).suggestedCategory,
+  'Книги',
+  'служебный заголовок чека не должен ломать категорию товара'
+);
+assert.equal(classifySpendCategory('Симулякры и симуляции | Бодрийар Жан').needsReview, false);
 
 for (const [title, category] of [
   ['Фарш говяжий охлаждённый 500 г', 'Продукты'],

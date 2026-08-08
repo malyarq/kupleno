@@ -30,6 +30,14 @@
         <li><strong>Выберите</strong><span>Только магазины, которыми пользуетесь.</span></li>
         <li><strong>Разрешите</strong><span>Браузер спросит доступ только к ним.</span></li>
       </ol>
+      <div class="onboarding-actions">
+        <button id="onboardingStart" type="button" disabled>Собрать мои покупки</button>
+        <button id="onboardingDemo" type="button" class="tertiary-button">Сначала посмотреть пример</button>
+        <details class="onboarding-alternative">
+          <summary>Уже есть таблица?</summary>
+          <button id="onboardingUpload" type="button" class="secondary">Загрузить CSV</button>
+        </details>
+      </div>
     </section>
 
     <section id="demoBanner" class="demo-banner" hidden aria-labelledby="demoBannerTitle">
@@ -74,15 +82,6 @@
           <p>Только чтобы по вашей команде прочитать заказы на отмеченных сайтах. Для Wildberries нужен также доступ к его cookie входа. Пароли MarketTrat не читает. Доступ можно отозвать в разделе «Настройки».</p>
         </details>
       </section>
-
-      <div class="onboarding-actions">
-        <button id="onboardingStart" type="button" disabled>Собрать мои покупки</button>
-        <button id="onboardingDemo" type="button" class="tertiary-button">Сначала посмотреть пример</button>
-        <details class="onboarding-alternative">
-          <summary>Уже есть таблица?</summary>
-          <button id="onboardingUpload" type="button" class="secondary">Загрузить CSV</button>
-        </details>
-      </div>
 
       <section class="status">
         <div id="statusText" role="status" aria-live="polite">Можно начинать.</div>
@@ -218,13 +217,6 @@
         </div>
       </section>
 
-      <div class="analytics-kpis">
-        <div><strong id="analyticsTotal">0</strong><span id="analyticsTotalLabel">итого, ₽</span><small id="analyticsTotalCompare"></small></div>
-        <div><strong id="analyticsAverage">0</strong><span id="analyticsAverageLabel">в среднем за месяц</span></div>
-        <div><strong id="analyticsRefunds">0</strong><span>возвраты, ₽</span></div>
-        <div><strong id="analyticsPurchases">0</strong><span id="analyticsPurchasesLabel">операций</span></div>
-      </div>
-
       <div class="analytics-layout">
         <div class="analytics-main">
           <div class="chart-panel spend-dynamics-panel">
@@ -278,6 +270,13 @@
             <ol id="topItems" class="top-items"></ol>
           </div>
         </div>
+      </div>
+
+      <div class="analytics-kpis">
+        <div><strong id="analyticsTotal">0</strong><span id="analyticsTotalLabel">итого, ₽</span><small id="analyticsTotalCompare"></small></div>
+        <div><strong id="analyticsAverage">0</strong><span id="analyticsAverageLabel">в среднем за месяц</span></div>
+        <div><strong id="analyticsRefunds">0</strong><span>возвраты, ₽</span></div>
+        <div><strong id="analyticsPurchases">0</strong><span id="analyticsPurchasesLabel">операций</span></div>
       </div>
 
       <section id="actionSummary" class="chart-panel action-summary" hidden aria-labelledby="actionSummaryTitle">
@@ -451,7 +450,7 @@
       <div class="data-titlebar control-titlebar">
         <div>
           <h2>Советы по покупкам</h2>
-          <p>Необычные операции, регулярные покупки, возвраты и гарантии. Всё считается по вашей истории на этом устройстве.</p>
+          <p>Подсказки для проверки, регулярные покупки, возвраты и гарантии. Всё считается по вашей истории на этом устройстве.</p>
         </div>
         <span class="local-badge">Без внешних сервисов</span>
       </div>
@@ -479,8 +478,8 @@
         <details class="chart-panel control-card disclosure-card" aria-labelledby="anomalyTitle" open>
           <summary class="panel-head">
             <div>
-              <strong id="anomalyTitle">Необычные операции</strong>
-              <small>Возможные дубли, резкий рост цены и возвраты без найденной покупки.</small>
+              <strong id="anomalyTitle">Ситуации для проверки</strong>
+              <small>Это подсказки, а не подтверждённые ошибки: возможные дубли, рост цены и несопоставленные возвраты.</small>
             </div>
             <span id="anomalySummary"></span>
           </summary>

@@ -60,6 +60,14 @@ function performanceImport(size = 10_000) {
   })), 'markettrat-performance.csv');
 }
 
+async function openDetails(page, selector) {
+  const details = page.locator(selector);
+  if (!await details.evaluate((node) => node.open)) {
+    await details.locator(':scope > summary').click();
+  }
+  return details;
+}
+
 async function main() {
   const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'markettrat-browser-'));
   let context;
@@ -122,7 +130,7 @@ async function main() {
     assert.equal(await page.locator('#onboardingStart').isEnabled(), true);
     const sourcesBox = await page.locator('.sources').boundingBox();
     const startBox = await page.locator('#onboardingStart').boundingBox();
-    assert.ok(sourcesBox && startBox && startBox.y > sourcesBox.y + sourcesBox.height, 'главная кнопка должна идти после выбора магазинов');
+    assert.ok(sourcesBox && startBox && startBox.y < sourcesBox.y, 'главная кнопка должна идти до выбора магазинов');
     await page.screenshot({ path: path.join(outputDir, 'first-run-desktop.png'), fullPage: true });
 
     await page.setViewportSize({ width: 390, height: 844 });
@@ -131,7 +139,43 @@ async function main() {
       document: document.documentElement.scrollWidth
     }));
     assert.ok(onboardingWidth.document <= onboardingWidth.viewport, `первый экран переполнен: ${JSON.stringify(onboardingWidth)}`);
+    const mobileStartBox = await page.locator('#onboardingStart').boundingBox();
+    assert.ok(
+      mobileStartBox && mobileStartBox.y >= 0 && mobileStartBox.y + mobileStartBox.height <= 844,
+      `главное действие первого запуска должно помещаться на первом экране: ${JSON.stringify(mobileStartBox)}`
+    );
     await page.screenshot({ path: path.join(outputDir, 'first-run-mobile.png'), fullPage: true });
+    await page.setViewportSize({ width: 195, height: 844 });
+    const zoomedOnboardingWidth = await page.evaluate(() => ({
+      viewport: window.innerWidth,
+      document: document.documentElement.scrollWidth,
+      overflowing: [...document.querySelectorAll('body *')]
+        .map((node) => {
+          const box = node.getBoundingClientRect();
+          const textBoxes = [...node.childNodes]
+            .filter((child) => child.nodeType === Node.TEXT_NODE && child.textContent.trim())
+            .map((child) => {
+              const range = document.createRange();
+              range.selectNodeContents(child);
+              return range.getBoundingClientRect();
+            });
+          return {
+            name: node.id || node.className || node.tagName,
+            left: box.left,
+            right: box.right,
+            client: node.clientWidth,
+            scroll: node.scrollWidth,
+            textLeft: Math.min(...textBoxes.map((textBox) => textBox.left), box.left),
+            textRight: Math.max(...textBoxes.map((textBox) => textBox.right), box.right)
+          };
+        })
+        .filter((node) => node.left < -1
+          || node.right > window.innerWidth + 1
+          || node.textLeft < -1
+          || node.textRight > window.innerWidth + 1)
+        .slice(0, 3)
+    }));
+    assert.equal(zoomedOnboardingWidth.overflowing.length, 0, `первый запуск при 200% переполнен: ${JSON.stringify(zoomedOnboardingWidth)}`);
     await page.setViewportSize({ width: 1280, height: 720 });
 
     await page.locator('#onboardingDemo').click();
@@ -207,6 +251,8 @@ async function main() {
     const chartBox = await page.locator('.spend-dynamics-panel').boundingBox();
     const extrasBox = await page.locator('#analyticsDetails').boundingBox();
     assert.ok(chartBox && extrasBox && chartBox.y < extrasBox.y, 'сначала должен идти основной график, затем дополнительные данные');
+    const kpisBox = await page.locator('.analytics-kpis').boundingBox();
+    assert.ok(chartBox && kpisBox && chartBox.y < kpisBox.y, 'график должен идти до карточек с итогами');
 
     await page.evaluate(() => {
       const synthetic = Array.from({ length: 1000 }, (_, index) => ({
@@ -228,6 +274,10 @@ async function main() {
     await page.locator('[data-view="categories"]').click();
     assert.equal(await page.locator('#categoryReviewBadge').isVisible(), false, 'вкладка не должна пугать размером очереди');
     assert.equal(await page.locator('#categoryReviewList .category-review-item').count(), 5, 'по умолчанию нужны только пять заметных групп');
+    assert.equal(await page.locator('#categoryReviewList .compact-check input').first().isChecked(), false, 'запоминание для похожих не должно быть включено заранее');
+    await page.locator('#categoryReviewList select').first().selectOption({ index: 1 });
+    await page.locator('#categoryReviewList .compact-check').first().click();
+    assert.match(await page.locator('#categoryReviewList .category-review-scope').first().textContent(), /Правило применится|совпадений нет/u, 'до сохранения должен быть показан охват правила');
     assert.match(await page.locator('#categoryReviewSummary').textContent(), /Остальное можно не разбирать/u);
     assert.doesNotMatch(await page.locator('#categoryQualityKpis').textContent(), /1000/u, 'раздел не должен предлагать разметить всю историю');
     await page.setViewportSize({ width: 1280, height: 720 });
@@ -237,12 +287,124 @@ async function main() {
     assert.ok(categoryPageWidth.document <= categoryPageWidth.viewport, `категории переполнены: ${JSON.stringify(categoryPageWidth)}`);
     await page.screenshot({ path: path.join(outputDir, 'categories-optional-mobile.png'), fullPage: true });
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.locator('[data-view="analytics"]').click();
     assert.doesNotMatch(await page.locator('#homeGuide').textContent(), /Проверить\s+\d+\s+покуп/u, 'категории не должны становиться главным заданием');
     await page.reload();
     await page.waitForFunction(() => document.querySelector('#downloadCsv')?.textContent?.includes('(3)'));
 
-    await page.locator('#toggleAnalyticsDetails').click();
+    // Advanced local features: each check goes through the visible UI and keeps
+    // its assertion to the user-visible outcome, not the implementation state.
+    await page.locator('[data-view="data"]').click();
+    await openDetails(page, '#dataView details:has(#profilesTitle)');
+    await page.locator('#dataProfileName').fill('Семейный');
+    await page.locator('#addDataProfile').click();
+    await page.waitForFunction(() => [...(document.querySelector('#dataProfileSelect')?.options || [])]
+      .some((option) => option.textContent === 'Семейный'));
+    assert.equal(await page.locator('#dataProfileSelect').inputValue(), await page.locator('#dataProfileSelect option', { hasText: 'Семейный' }).getAttribute('value'));
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.locator('#deleteDataProfile').click();
+    await page.waitForFunction(() => ![...(document.querySelector('#dataProfileSelect')?.options || [])]
+      .some((option) => option.textContent === 'Семейный'));
+
+    await page.locator('[data-view="analytics"]').click();
+    await openDetails(page, '#analyticsDetails');
+    await openDetails(page, '#budgetCard');
+    await page.locator('#budgetMonth').fill('2026-06');
+    await page.locator('#budgetMonth').press('Tab');
+    await page.locator('#overallBudgetAmount').fill('12000');
+    await page.locator('#saveOverallBudget').click();
+    await page.waitForFunction(() => /Потрачено[\s\S]*12[\s\u00a0]000/u.test(document.querySelector('#budgetForecastStatus')?.textContent || ''));
+    await page.locator('#budgetCategory').selectOption({ index: 1 });
+    await page.locator('#budgetAmount').fill('1000');
+    await page.locator('#saveBudget').click();
+    await page.waitForFunction(() => !document.querySelector('#budgetBreakdown')?.textContent?.includes('Добавьте лимит'));
+
+    await page.locator('[data-view="data"]').click();
+    await openDetails(page, '#dataView details:has(#categoryRulesTitle)');
+    await page.locator('#categoryRulePattern').fill('Кофе');
+    await page.waitForFunction(() => document.querySelector('#categoryRulePreview')?.textContent?.includes('Правило затронет 1 операцию'));
+    await page.locator('#categoryRuleCategory').selectOption({ index: 1 });
+    await page.locator('#categoryRuleForm').evaluate((form) => form.requestSubmit());
+    await page.waitForFunction(() => document.querySelector('#categoryRuleList')?.textContent?.includes('«Кофе»'));
+    assert.match(await page.locator('#categoryRuleList').textContent(), /1\s+совпадение/u);
+
+    await page.locator('[data-view="analytics"]').click();
+    await openDetails(page, '#analyticsDetails');
+    await page.getByRole('button', { name: /Изменить операцию Кофе зерновой/u }).click();
+    await page.locator('#operationEditor').waitFor({ state: 'visible' });
+    await page.locator('#markWarranty').check();
+    await page.locator('#operationWarrantyUntil').fill('2027-06-01');
+    await page.locator('#operationDocumentUrl').fill('https://example.test/warranty');
+    await page.locator('#operationWarrantyNote').fill('Срок проверен');
+    await page.locator('#operationSave').click();
+    await page.locator('#operationEditor').waitFor({ state: 'hidden' });
+    await page.locator('[data-view="control"]').click();
+    await openDetails(page, '#controlView details:has(#warrantyTitle)');
+    await page.waitForFunction(() => document.querySelector('#warrantyList')?.textContent?.includes('Кофе зерновой'));
+    assert.match(await page.locator('#warrantyList').textContent(), /действует/u);
+
+    await openDetails(page, '#controlView details:has(#monthCloseTitle)');
+    await page.locator('#closeMonth').fill('2026-06');
+    await page.locator('#closeMonth').press('Tab');
+    await page.locator('#monthCloseAction').click();
+    await page.waitForFunction(() => document.querySelector('#monthCloseAction')?.textContent !== 'Сохранить итог');
+    if (/Сохранить с замечаниями/u.test(await page.locator('#monthCloseAction').textContent())) {
+      await page.locator('#monthCloseAction').click();
+    }
+    const monthCloseStatus = await page.locator('#monthCloseStatus').textContent();
+    assert.match(monthCloseStatus || '', /Итог месяца сохранён/u, `месяц не закрылся: ${monthCloseStatus}`);
+
+    await page.locator('[data-view="analytics"]').click();
+    await openDetails(page, '#analyticsDetails');
+    const rowSelectors = page.getByRole('checkbox', { name: /^Выбрать операцию /u });
+    assert.ok(await rowSelectors.count() >= 2, 'для массовой правки нужны как минимум две операции');
+    await rowSelectors.nth(0).check();
+    await rowSelectors.nth(1).check();
+    await page.locator('#bulkBar').waitFor({ state: 'visible' });
+    assert.match(await page.locator('#bulkCount').textContent(), /2/u);
+    await page.locator('#bulkCategory').selectOption({ index: 1 });
+    await page.locator('#bulkApply').click();
+    await page.locator('#bulkBar').waitFor({ state: 'hidden' });
+    assert.match(await page.locator('#statusText').textContent(), /Массово изменено/u);
+    await page.locator('[data-view="data"]').click();
+    await openDetails(page, '#dataView details:has(#overridesTitle)');
+    assert.match(await page.locator('#operationOverridesSummary').textContent(), /2\s+правки/u);
+
+    await openDetails(page, '#dataView details:has(#historyTitle)');
+    await page.waitForFunction(() => [...document.querySelectorAll('#dataHistoryList .data-list-item')]
+      .some((item) => item.textContent?.includes('Добавлен профиль')));
+    const profileSnapshot = page.locator('#dataHistoryList .data-list-item').filter({ hasText: 'Добавлен профиль' }).first();
+    await profileSnapshot.getByRole('button', { name: /Восстановить/u }).click();
+    await page.waitForFunction(() => [...(document.querySelector('#dataProfileSelect')?.options || [])]
+      .some((option) => option.textContent === 'Семейный'));
+    assert.equal(await page.locator('#dataProfileSelect option', { hasText: 'Семейный' }).count(), 1, 'восстановление отдельного снимка должно вернуть профиль из снимка');
+
+    await page.evaluate(() => {
+      const originalPut = IDBObjectStore.prototype.put;
+      let injected = false;
+      globalThis.__marketTratRestorePut = () => {
+        IDBObjectStore.prototype.put = originalPut;
+        delete globalThis.__marketTratRestorePut;
+      };
+      IDBObjectStore.prototype.put = function failNextSnapshotPut(...args) {
+        if (!injected && this.name === 'snapshots') {
+          injected = true;
+          throw new DOMException('injected save failure', 'QuotaExceededError');
+        }
+        return originalPut.apply(this, args);
+      };
+    });
+    await page.locator('#dataProfileName').fill('Несохранённый');
+    await page.locator('#addDataProfile').click();
+    await page.waitForFunction(() => document.querySelector('#statusText')?.textContent?.includes('Не удалось сохранить'));
+    assert.equal(
+      await page.locator('#dataProfileSelect option', { hasText: 'Несохранённый' }).count(),
+      0,
+      'при сбое IndexedDB интерфейс должен откатить несохранённое изменение'
+    );
+    await page.evaluate(() => globalThis.__marketTratRestorePut?.());
+
+    await page.locator('[data-view="analytics"]').click();
+    await openDetails(page, '#analyticsDetails');
     await page.locator('.detail-panel').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#analyticsDetails').getAttribute('open'), '', 'нижние данные должны раскрываться одним понятным блоком');
     await page.screenshot({ path: path.join(outputDir, 'analytics-more-desktop.png'), fullPage: true });

@@ -390,6 +390,7 @@ let automaticPersistenceSuppressionDepth = 0;
 let dataEpoch = 0;
 let dataRevision = 0;
 let storageConflict = false;
+let committedAppState = null;
 let collectionInProgress = false;
 let databaseMutationInProgress = false;
 let collectGeneration = 0;
@@ -969,21 +970,26 @@ function persistSnapshot(reason = '') {
     markStorageConflict();
     return Promise.resolve(null);
   }
-  const payload = {
+  const payload = JSON.parse(JSON.stringify({
     rows: sourceRows,
     settings: appSettings,
     metadata: snapshotMetadata(reason)
-  };
+  }));
+  const savedState = captureAppState();
+  let rollbackState = null;
   persistencePendingCount += 1;
   setMutationControlsDisabled(true);
   setStatus(`Сохраняю локально: ${reason || 'обновление'}...`);
   let committed = false;
   persistenceQueue = persistenceQueue
     .catch(() => null)
-    .then(() => featureStorage.save(payload, {
-      expectedEpoch: dataEpoch,
-      expectedRevision: dataRevision
-    }))
+    .then(() => {
+      rollbackState = committedAppState ? JSON.parse(JSON.stringify(committedAppState)) : null;
+      return featureStorage.save(payload, {
+        expectedEpoch: dataEpoch,
+        expectedRevision: dataRevision
+      });
+    })
     .then((snapshot) => {
       committed = true;
       adoptLoadedDataRevision(snapshot.revision);
@@ -993,6 +999,7 @@ function persistSnapshot(reason = '') {
         revision: dataRevision
       });
       cleanupLegacyStorageAfterCommit();
+      committedAppState = savedState;
       renderHistory().catch((error) => {
         appendLog(`Предупреждение: не удалось обновить историю: ${error.message}`);
       });
@@ -1012,6 +1019,10 @@ function persistSnapshot(reason = '') {
         return null;
       }
       appendLog(`Предупреждение: не удалось сохранить локальные данные: ${error.message}`);
+      if (rollbackState) {
+        restoreCapturedState(rollbackState);
+        appendLog('Несохранённое изменение отменено, показана последняя сохранённая версия.');
+      }
       return null;
     })
     .finally(() => {
@@ -1132,6 +1143,7 @@ function resetLocalDataAfterClear(epoch, remote = false) {
   forgetStoredCollectJob();
   applyTheme('light', false);
   withAutomaticPersistenceSuppressed(() => updateResult([], {}));
+  committedAppState = captureAppState();
   renderLog();
   renderRunSummary();
   renderSourceStatuses();
@@ -1346,7 +1358,7 @@ function renderRunSummary() {
   els.runSummary.hidden = !show;
   els.runDetails.classList.toggle('collapsed', show && !runDetailsOpen);
   els.runDownloadCsv.hidden = show && runDetailsOpen;
-  els.toggleRunDetails.textContent = runDetailsOpen ? 'Скрыть детали' : 'Подробнее';
+  els.toggleRunDetails.textContent = runDetailsOpen ? 'Скрыть настройки сбора' : 'Настройки сбора';
   if (!show) return;
 
   const total = rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
@@ -1829,29 +1841,75 @@ function dedupeRows(records) {
     : { rows: records, duplicates: 0 };
 }
 
+function ozonOrderIdFromReceiptId(receiptId) {
+  return String(receiptId || '').match(
+    /^(.+?)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:-\d+-\d+)?$/i
+  )?.[1] || '';
+}
+
 function ozonOrderIdFromRow(row) {
-  return String(row?.raw_title || '').match(/Заказ\s*№\s*(\S+)/iu)?.[1] || '';
+  const explicit = String(row?.ozon_order_id || '').trim();
+  if (explicit) return explicit;
+  const fromTitle = String(row?.raw_title || '').match(/Заказ\s*№\s*(\S+)/iu)?.[1] || '';
+  if (fromTitle) return fromTitle;
+  const receiptUrl = String(row?.receipt_url || '');
+  const receiptId = receiptUrl.match(/[?&](?:id|chequeid|checkid|receiptid)=([^&#]+)/i)?.[1]
+    || row?.marketplace_id
+    || '';
+  return ozonOrderIdFromReceiptId(receiptId);
 }
 
 function legacyOzonSettlementDuplicateCount(records) {
-  const signatures = new Map();
+  const legacySignatures = new Map();
+  const settlementSignatures = new Map();
+  const unresolvedSettlementSignatures = new Map();
   for (const row of records || []) {
-    if (row?.source !== 'ozon' || row?.ozon_settlement_kind || rowAmount(row) <= 0 || isFallbackCollectedRow(row)) continue;
+    if (row?.source !== 'ozon' || rowAmount(row) <= 0 || isFallbackCollectedRow(row)) continue;
     const orderId = ozonOrderIdFromRow(row);
     const receipt = String(row.receipt_url || row.marketplace_id || '').trim();
     const title = normalizeKeyText(row.title);
     const amount = Math.round(Math.abs(rowAmount(row)) * 100);
     if (!orderId || !receipt || !title || !amount) continue;
-    const signature = `${orderId}\u0001${title}\u0001${amount}`;
-    const receipts = signatures.get(signature) || new Set();
-    receipts.add(receipt);
-    signatures.set(signature, receipts);
+    const kind = String(row.ozon_settlement_kind || '').trim();
+    if (!kind || kind === 'full') {
+      const signature = `${orderId}\u0001${title}\u0001${amount}`;
+      const receipts = unresolvedSettlementSignatures.get(signature) || new Map();
+      receipts.set(receipt, kind);
+      unresolvedSettlementSignatures.set(signature, receipts);
+    }
+    if (kind === 'prepayment' || kind === 'full') {
+      const signature = `${orderId}\u0001${title}`;
+      const receipts = settlementSignatures.get(signature) || new Map();
+      receipts.set(receipt, kind);
+      settlementSignatures.set(signature, receipts);
+    } else {
+      const signature = `${orderId}\u0001${title}\u0001${amount}`;
+      const receipts = legacySignatures.get(signature) || new Set();
+      receipts.add(receipt);
+      legacySignatures.set(signature, receipts);
+    }
   }
-  return [...signatures.values()].filter((receipts) => receipts.size > 1).length;
+  const legacyDuplicates = [...legacySignatures.values()].filter((receipts) => receipts.size > 1).length;
+  const settlementDuplicates = [...settlementSignatures.values()].filter((receipts) => {
+    const kinds = new Set(receipts.values());
+    return receipts.size > 1 && kinds.has('prepayment') && kinds.has('full');
+  }).length;
+  const unresolvedDuplicates = [...unresolvedSettlementSignatures.values()].filter((receipts) => {
+    const kinds = new Set(receipts.values());
+    return receipts.size > 1 && kinds.has('') && kinds.has('full');
+  }).length;
+  return legacyDuplicates + settlementDuplicates + unresolvedDuplicates;
 }
 
 function needsOzonSettlementRepair(records) {
   return legacyOzonSettlementDuplicateCount(records) > 0;
+}
+
+function needsOzonFullScan(records) {
+  return needsOzonSettlementRepair(records)
+    || (records || []).some((row) => row?.source === 'ozon'
+      && row?.ozon_settlement_kind === 'prepayment'
+      && rowAmount(row) > 0);
 }
 
 function collectKnownReceipts(records) {
@@ -1869,7 +1927,7 @@ function collectKnownReceipts(records) {
     result[bucket].push(key);
   }
 
-  const forceFullOzonScan = needsOzonSettlementRepair(records);
+  const forceFullOzonScan = needsOzonFullScan(records);
   const newestFirst = [...records].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   for (const row of newestFirst) {
     const source = row.source;
@@ -2058,7 +2116,7 @@ function normalizeKeyText(text) {
 function isServiceRow(row) {
   const title = String(row.title || '').trim();
   if (String(row.category || '').trim() === 'Доставка') return true;
-  if (/^(доставк.*|компенсация доставки)$/i.test(title)) return true;
+  if (/^(доставк.*|компенсация доставки|таможенный платеж|предоставление упаковки)$/i.test(title)) return true;
   if (row.source === 'wildberries') return /^(услуга доставки|комиссия сервиса)$/i.test(title);
   if (row.source === 'yandex') return /^(доставк.*|сервисный сбор|работа сервиса)$/i.test(title);
   return false;
@@ -3334,6 +3392,13 @@ function confidenceWords(value) {
   return 'категория приблизительная';
 }
 
+function suggestionConfidenceWords(value) {
+  const confidence = Number(value) || 0;
+  if (confidence >= 0.85) return 'похоже на реальную проблему';
+  if (confidence >= 0.65) return 'стоит проверить';
+  return 'только предположение';
+}
+
 function categoryReviewEntries() {
   const query = normalizeKeyText(els.categoryReviewSearch.value);
   const grouped = new Map();
@@ -3462,17 +3527,39 @@ function renderCategoryReview() {
     rememberLabel.className = 'check compact-check';
     const remember = document.createElement('input');
     remember.type = 'checkbox';
-    remember.checked = true;
     rememberLabel.append(remember, document.createTextNode('Запомнить для похожих'));
+    const rememberScope = document.createElement('span');
+    rememberScope.className = 'category-review-scope';
+    rememberScope.hidden = true;
+    const updateRememberScope = () => {
+      if (!remember.checked) {
+        rememberScope.hidden = true;
+        return;
+      }
+      if (!select.value) {
+        rememberScope.textContent = 'Сначала выберите категорию, чтобы увидеть охват правила.';
+        rememberScope.hidden = false;
+        return;
+      }
+      const rule = preferences.deriveCategoryRule(entry.firstRow, select.value);
+      const affected = matchingCategoryRuleRows(rule);
+      const amount = affected.reduce((sum, row) => sum + Math.abs(rowAmount(row)), 0);
+      rememberScope.textContent = affected.length
+        ? `Правило применится к ${formatCount(affected.length, ['покупке', 'покупкам', 'покупкам'])} на ${formatRub(amount)}, включая эту.`
+        : 'В текущих покупках совпадений нет; правило применится к будущим подходящим покупкам.';
+      rememberScope.hidden = false;
+    };
     const apply = document.createElement('button');
     apply.type = 'button';
     apply.textContent = 'Исправить';
     apply.disabled = !select.value;
     select.addEventListener('change', () => {
       apply.disabled = !select.value;
+      updateRememberScope();
     });
+    remember.addEventListener('change', updateRememberScope);
     apply.addEventListener('click', () => applyCategoryReview(entry, select.value, remember.checked));
-    controls.append(selectWrap, rememberLabel, apply);
+    controls.append(selectWrap, rememberLabel, rememberScope, apply);
     item.append(copy, controls);
     els.categoryReviewList.appendChild(item);
   }
@@ -4435,7 +4522,7 @@ function renderAnomalies(analysis) {
     const details = [
       anomaly.amount ? formatRub(anomaly.amount) : '',
       anomaly.changePercent ? `${Math.round(anomaly.changePercent * 100)}% к прошлой покупке` : '',
-      confidenceWords(anomaly.confidence)
+      suggestionConfidenceWords(anomaly.confidence)
     ].filter(Boolean).join(' · ');
     const actions = [];
     if (firstRow) actions.push(smallButton('Проверить', () => openOperationEditor(firstRow.rowId), 'secondary'));
@@ -4736,7 +4823,7 @@ function renderControl(refundResult = null) {
   const monthAttention = month.changed || month.closure.status === 'needs-review' ? 1 : 0;
   const actionable = anomalies.length + recurring.pending.length + refundAttention + warrantyAttention + monthAttention;
   renderControlKpis([
-    [anomalies.length, 'необычных операций', anomalies.length ? 'warning' : 'ok'],
+    [anomalies.length, 'ситуаций предложено проверить', anomalies.length ? 'warning' : 'ok'],
     [recurring.confirmed.length, 'регулярных покупок подтверждено', ''],
     [formatRub(refunds.summary.outstandingAmount), 'денег по возвратам ещё не пришло', refunds.summary.overdue ? 'warning' : ''],
     [warrantyAttention, 'гарантий скоро закончатся или уже закончились', warrantyAttention ? 'warning' : 'ok']
@@ -4861,6 +4948,7 @@ async function renderHistory() {
         });
         demoMode = false;
         restoreSnapshot(snapshot, 'Восстановлена версия');
+        committedAppState = captureAppState();
         await renderHistory();
         appendLog(`Восстановлен снимок от ${formatRunTime(new Date(entry.createdAt))}.`);
       } catch (error) {
@@ -6163,6 +6251,7 @@ async function initializeApp() {
     await persistSnapshot('Миграция старого отчёта');
   }
   if (!restored) updateResult([], {});
+  committedAppState = captureAppState();
 
   els.onboardingPanel.hidden = Boolean(localStorage.getItem(onboardingStorageKey) || sourceRows.length);
   document.body.classList.toggle('first-run', !els.onboardingPanel.hidden);

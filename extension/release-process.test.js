@@ -11,11 +11,13 @@ const requiredFiles = [
   '.nvmrc',
   '.github/ISSUE_TEMPLATE/config.yml',
   '.github/ISSUE_TEMPLATE/bug_report.yml',
+  '.github/workflows/codeql.yml',
   '.github/workflows/verify-release.yml',
   '.github/workflows/release-candidate.yml',
   'package-lock.json',
   'CHANGELOG.md',
   'CONTRIBUTING.md',
+  'MONETIZATION.md',
   'PRIVACY.md',
   'RELEASE.md',
   'SECURITY.md',
@@ -24,7 +26,10 @@ const requiredFiles = [
   'docs/ARCHITECTURE.md',
   'docs/DATA_AND_COMPATIBILITY.md',
   'docs/MAINTENANCE.md',
+  'docs/PRODUCT.md',
   'docs/TESTING.md',
+  'assets/screenshots/analytics.png',
+  'assets/screenshots/overview.png',
   'extension/analytics-core.js',
   'extension/analytics-utils.js',
   'extension/category-benchmark.json',
@@ -92,6 +97,16 @@ assert.match(verifyWorkflow, /permissions:\n\s+contents: read/);
 assert.match(verifyWorkflow, /push:\n\s+branches: \[main\]/);
 assert.doesNotMatch(verifyWorkflow, /pull_request:|statuses:\s*write|MarketTrat verification/);
 assert.doesNotMatch(verifyWorkflow, /contents:\s*write|gh release|softprops\/action-gh-release/i);
+
+const codeqlWorkflow = read('.github/workflows/codeql.yml');
+assert.match(codeqlWorkflow, /push:\n\s+branches: \[main\]/);
+assert.match(codeqlWorkflow, /schedule:/);
+assert.match(codeqlWorkflow, /workflow_dispatch:/);
+assert.match(codeqlWorkflow, /security-events: write/);
+assert.match(codeqlWorkflow, /languages: javascript-typescript/);
+for (const action of [...codeqlWorkflow.matchAll(/^\s*uses:\s*([^\s#]+)/gm)].map((match) => match[1])) {
+  assert.match(action, /^[^@]+@[0-9a-f]{40}$/, `${action} must be pinned to a full commit SHA`);
+}
 
 const candidateScript = read('scripts/verify-release-candidate.sh');
 assert.match(candidateScript, /status --porcelain --untracked-files=all/);

@@ -14,9 +14,10 @@ const normal = cases.filter((entry) => entry.kind !== 'ambiguous');
 const ambiguous = cases.filter((entry) => entry.kind === 'ambiguous');
 const categories = new Set(normal.map((entry) => entry.expected));
 
-assert.ok(cases.length >= 100, 'эталон должен содержать не меньше 100 названий');
+assert.ok(cases.length >= 180, 'эталон должен содержать не меньше 180 названий');
 assert.ok(categories.size >= 25, 'эталон должен покрывать не меньше 25 категорий');
-assert.ok(ambiguous.length >= 15, 'эталон должен содержать опасные неоднозначности');
+assert.ok(normal.length >= 150, 'эталон должен содержать не меньше 150 обычных названий');
+assert.ok(ambiguous.length >= 25, 'эталон должен содержать опасные неоднозначности');
 
 const stats = {
   autoCorrect: 0,

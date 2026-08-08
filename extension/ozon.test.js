@@ -35,9 +35,13 @@ const {
   filterOzonRows,
   foldDeliveryIntoRows,
   parseOzonPdfRows,
+  assertCollectedRowLimit,
   extractYandexPageTokenFromHtml,
   hasYandexNextOrdersPage
 } = context.MarketTratOzonTest;
+
+assert.doesNotThrow(() => assertCollectedRowLimit(100000));
+assert.throws(() => assertCollectedRowLimit(100001), /Сбор остановлен/);
 
 function row(overrides = {}) {
   return {
@@ -79,6 +83,19 @@ assert.equal(spacedOrderNumber.prepaymentRowsDropped, 1);
 assert.equal(spacedOrderNumber.rows[0].ozon_settlement_kind, 'full');
 assert.ok(spacedOrderNumber.supersededReceipts.includes('https://www.ozon.ru/receipt?id=receipt-1'));
 
+const liveOrderPrefix = '55887469-0288';
+const livePrepaymentUrl = `https://www.ozon.ru/_action/downloadCheque?chequeId=${liveOrderPrefix}-ae92b46c-7399-4fa3-aeeb-e472be915820-0-0`;
+const liveFullUrl = `https://www.ozon.ru/_action/downloadCheque?chequeId=${liveOrderPrefix}-82307747-54ad-4999-b8da-40646d7a0fbb-0-0`;
+const liveStyleSiblingSettlements = filterOzonRows([
+  row({ marketplace_id: '', receipt_url: livePrepaymentUrl, raw_title: 'Ozon cheque', __ozonSettlementKind: 'prepayment' }),
+  row({ marketplace_id: '', receipt_url: liveFullUrl, raw_title: 'Ozon cheque', date: '2026-01-02 10:00', __ozonSettlementKind: 'full' }),
+  row({ marketplace_id: '', receipt_url: liveFullUrl, raw_title: 'Ozon cheque', date: '2026-01-02 10:00', title: 'Доставка', amount: '40.00', item_index: '2', __ozonSettlementKind: 'full' })
+]);
+assert.equal(liveStyleSiblingSettlements.rows.length, 1, 'chequeId должен связывать предоплату и финальный чек заказа');
+assert.equal(liveStyleSiblingSettlements.rows[0].amount, '140.00', 'доставка учитывается один раз в финальном чеке');
+assert.equal(liveStyleSiblingSettlements.prepaymentRowsDropped, 1);
+assert.ok(liveStyleSiblingSettlements.supersededReceipts.includes(livePrepaymentUrl));
+
 const splitFullSettlement = filterOzonRows([
   row({ item_index: '1', __ozonSettlementKind: 'prepayment' }),
   row({ item_index: '2', __ozonSettlementKind: 'prepayment' }),
@@ -88,6 +105,31 @@ const splitFullSettlement = filterOzonRows([
 assert.equal(splitFullSettlement.prepaymentRowsDropped, 2);
 assert.equal(splitFullSettlement.rows.length, 2);
 assert.equal(splitFullSettlement.rows.reduce((sum, item) => sum + Number(item.amount), 0), 200);
+
+const unresolvedPrepayment = filterOzonRows([
+  row({ receipt_url: 'https://www.ozon.ru/receipt?id=unresolved-prepayment' }),
+  row({ date: '2026-01-02 10:00', receipt_url: 'https://www.ozon.ru/receipt?id=resolved-full', __ozonSettlementKind: 'full' })
+]);
+assert.equal(unresolvedPrepayment.rows.length, 1, 'ранний неопределённый чек не должен дублировать итоговый расчёт заказа');
+assert.equal(unresolvedPrepayment.rows[0].ozon_settlement_kind, 'full');
+assert.equal(unresolvedPrepayment.duplicateRowsDropped, 1);
+
+const unresolvedSplitSettlement = filterOzonRows([
+  row({ receipt_url: 'https://www.ozon.ru/receipt?id=unresolved-split', title: 'Товар A', item_index: '1' }),
+  row({ receipt_url: 'https://www.ozon.ru/receipt?id=unresolved-split', title: 'Товар B', item_index: '2' }),
+  row({ date: '2026-01-02 10:00', receipt_url: 'https://www.ozon.ru/receipt?id=resolved-a', title: 'Товар A', __ozonSettlementKind: 'full' }),
+  row({ date: '2026-01-03 10:00', receipt_url: 'https://www.ozon.ru/receipt?id=resolved-b', title: 'Товар B', __ozonSettlementKind: 'full' })
+]);
+assert.equal(unresolvedSplitSettlement.rows.length, 2, 'итоговые чеки по частям должны целиком заменять ранний чек заказа');
+assert.equal(unresolvedSplitSettlement.duplicateRowsDropped, 2);
+
+const unresolvedWithoutFullCoverage = filterOzonRows([
+  row({ receipt_url: 'https://www.ozon.ru/receipt?id=unresolved-partial', title: 'Товар A', item_index: '1' }),
+  row({ receipt_url: 'https://www.ozon.ru/receipt?id=unresolved-partial', title: 'Товар B', item_index: '2' }),
+  row({ date: '2026-01-02 10:00', receipt_url: 'https://www.ozon.ru/receipt?id=resolved-only-a', title: 'Товар A', __ozonSettlementKind: 'full' })
+]);
+assert.equal(unresolvedWithoutFullCoverage.rows.length, 3, 'неполное покрытие нельзя автоматически считать дублем');
+assert.equal(unresolvedWithoutFullCoverage.duplicateRowsDropped, 0);
 
 const repeatedPurchase = filterOzonRows([
   row({ date: '2026-01-01 10:00', receipt_url: 'https://www.ozon.ru/receipt?id=purchase-1' }),

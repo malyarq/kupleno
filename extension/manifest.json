@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MarketTrat",
-  "version": "0.15.4",
+  "version": "0.16.2",
   "minimum_chrome_version": "116",
   "description": "Локально собирает и анализирует покупки, возвраты и бюджеты Ozon, Wildberries и Яндекс Маркета.",
   "icons": {

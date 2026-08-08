@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
 const {
   allowedReceiptUrl,
+  assertCollectedRowLimit,
+  fatalCollectionError,
   isWildberriesReceiptsPageReady,
   parseWbReceiptItems,
   wbOperationType
@@ -9,6 +11,23 @@ const {
 assert.equal(allowedReceiptUrl('https://receipt.wb.ru/receipt/123'), 'https://receipt.wb.ru/receipt/123');
 assert.throws(() => allowedReceiptUrl('https://evil.example/collect'), /запрещённый адрес чека/);
 assert.throws(() => allowedReceiptUrl('http://receipt.wb.ru/receipt/123'), /запрещённый адрес чека/);
+assert.doesNotThrow(() => assertCollectedRowLimit(100000));
+assert.throws(() => assertCollectedRowLimit(100001), /Сбор остановлен/);
+let overflow;
+try {
+  assertCollectedRowLimit(100001);
+} catch (error) {
+  overflow = error;
+}
+assert.equal(overflow.code, 'ROW_LIMIT_EXCEEDED');
+assert.equal(fatalCollectionError([
+  { ok: true, result: { source: 'wildberries', rows: [{ title: 'Успешная строка' }] } },
+  { ok: false, error: overflow }
+]), overflow, 'переполнение одного источника должно отменять весь сбор');
+assert.equal(fatalCollectionError([
+  { ok: true, result: { source: 'wildberries', rows: [] } },
+  { ok: false, error: new Error('Ozon временно недоступен') }
+]), null, 'обычная ошибка одного источника сохраняет успешную часть с предупреждением');
 
 assert.equal(isWildberriesReceiptsPageReady({
   url: 'https://www.wildberries.ru/lk/receipts/get',

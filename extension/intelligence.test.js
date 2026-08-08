@@ -3,8 +3,8 @@ const intelligence = require('./intelligence.js');
 
 const sourceRows = [
   { date: '2026-01-05', source: 'ozon', title: 'Кофе Lavazza Oro зерно 1 кг', amount: '1000.00' },
-  { date: '2026-02-04', source: 'wildberries', title: 'Lavazza Oro кофе 1000 г зерновой', amount: '1100.00' },
-  { date: '2026-03-06', source: 'ozon', title: 'Кофе Lavazza Oro 1 кг', amount: '1600.00' },
+  { date: '2026-02-04', source: 'wildberries', title: 'Lavazza Oro кофе зерно 1000 г', amount: '1100.00' },
+  { date: '2026-03-06', source: 'ozon', title: 'Кофе зерно Lavazza Oro 1 кг', amount: '1600.00' },
   { date: '2026-01-01', source: 'ozon', title: 'Подписка Музыка', amount: '199.00' },
   { date: '2026-02-01', source: 'ozon', title: 'Музыка подписка', amount: '199.00' },
   { date: '2026-03-03', source: 'ozon', title: 'Подписка музыка', amount: '199.00' },
@@ -21,6 +21,8 @@ const before = JSON.parse(JSON.stringify(sourceRows));
 const normalized = intelligence.normalizeProductIdentity(sourceRows[0]);
 assert.equal(normalized.key, 'lavazza|oro|зерно|кофе');
 assert.deepEqual(normalized.quantity, { value: 1000, unit: 'g', source: 'title' });
+assert.deepEqual(intelligence.normalizeProductIdentity('Капсулы для стирки 56 капсул').quantity, { value: 56, unit: 'item', source: 'title' });
+assert.deepEqual(intelligence.normalizeProductIdentity('Мыло, набор 2×460 мл').quantity, { value: 920, unit: 'ml', source: 'title' });
 
 const report = intelligence.analyze(sourceRows);
 assert.deepEqual(sourceRows, before, 'движок не должен менять строки пользователя');
@@ -72,6 +74,26 @@ const differentReceiptAnomalies = intelligence.detectAnomalies([
   { date: '2026-05-01', source: 'ozon', receipt_url: 'receipt-2', title: 'Кабель USB-C', amount: '500.00' }
 ]);
 assert.equal(differentReceiptAnomalies.some((item) => item.type === 'possible_duplicate'), true, 'похожие покупки из разных чеков остаются кандидатом');
+assert.equal(intelligence.detectAnomalies([
+  { date: '2026-05-01', source: 'ozon', receipt_url: 'receipt-1', title: 'Пакет', amount: '9.00' },
+  { date: '2026-05-01', source: 'ozon', receipt_url: 'receipt-2', title: 'Пакет', amount: '9.00' }
+]).some((item) => item.type === 'possible_duplicate'), false, 'дешёвая мелочь не должна создавать тревожное предупреждение');
+assert.equal(intelligence.detectAnomalies([
+  { date: '2026-04-01', title: 'Энергетик Бренд A малина 450 мл', amount: '70.00' },
+  { date: '2026-05-01', title: 'Энергетик Бренд B гранат 450 мл', amount: '120.00' }
+]).some((item) => item.type === 'price_increase'), false, 'похожие, но разные товары нельзя выдавать за рост цены одного товара');
+const liveOrderPrefix = '55887469-0288';
+const liveStyleSameOrderAnomalies = intelligence.detectAnomalies([
+  {
+    date: '2026-05-01', source: 'ozon', raw_title: 'Ozon cheque', title: 'Кабель USB-C', amount: '500.00',
+    receipt_url: `https://www.ozon.ru/_action/downloadCheque?chequeId=${liveOrderPrefix}-ae92b46c-7399-4fa3-aeeb-e472be915820-0-0`
+  },
+  {
+    date: '2026-05-01', source: 'ozon', raw_title: 'Ozon cheque', title: 'Кабель USB-C', amount: '500.00',
+    receipt_url: `https://www.ozon.ru/_action/downloadCheque?chequeId=${liveOrderPrefix}-82307747-54ad-4999-b8da-40646d7a0fbb-0-0`
+  }
+]);
+assert.equal(liveStyleSameOrderAnomalies.some((item) => item.type === 'possible_duplicate'), false, 'два фискальных чека одного заказа не являются необычной покупкой');
 
 const staleAnomalies = intelligence.detectAnomalies([
   { date: '2020-01-01', title: 'Старый кабель USB', amount: '500.00' },

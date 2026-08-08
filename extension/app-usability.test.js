@@ -15,7 +15,7 @@ test('первый запуск ведёт к одному понятному д
   assert.match(html, /id="onboardingUpload"[^>]*>Загрузить CSV</);
   assert.match(html, /id="collectHint"[^>]*>Сбор может занять несколько минут/);
   assert.match(app, /els\.onboardingStart\.addEventListener\('click',[\s\S]*?els\.collect\.click\(\)/);
-  assert.ok(html.indexOf('class="sources"') < html.indexOf('id="onboardingStart"'), 'сначала выбор магазина, потом запуск');
+  assert.ok(html.indexOf('id="onboardingStart"') < html.indexOf('class="sources"'), 'главное действие видно до настроек сбора');
   assert.match(css, /body\.first-run \.run-details \.toolbar[\s\S]*?display: none !important/);
 });
 
@@ -83,6 +83,13 @@ test('ошибка показывает понятное объяснение р
   assert.match(html, /id="warningDetails"[^>]*>Технические сведения/);
   assert.match(app, /Браузер не дал доступ к выбранным магазинам/);
   assert.match(app, /Один из магазинов не увидел вход в аккаунт/);
+});
+
+test('очередь сохранения откатывается к последнему действительно записанному снимку', () => {
+  const persistBody = app.slice(app.indexOf('function persistSnapshot('), app.indexOf('function captureAppState('));
+  assert.match(persistBody, /const savedState = captureAppState\(\)/);
+  assert.match(persistBody, /\.then\(\(\) => \{[\s\S]*?rollbackState = committedAppState[\s\S]*?featureStorage\.save\(payload/);
+  assert.match(persistBody, /committedAppState = savedState/);
 });
 
 test('общий сброс снимает и фильтр профиля', () => {

@@ -175,15 +175,15 @@ p {
 .source-permission-note {
   flex: 1 1 320px;
   color: var(--muted);
-  font-size: 12px;
-  line-height: 17px;
+  font-size: 13px;
+  line-height: 19px;
 }
 
 .permission-details {
   flex: 1 1 100%;
   color: var(--muted);
-  font-size: 12px;
-  line-height: 17px;
+  font-size: 13px;
+  line-height: 19px;
 }
 
 .permission-details summary,
@@ -341,8 +341,8 @@ p {
 
 .source-choice-copy small {
   color: var(--muted);
-  font-size: 11px;
-  line-height: 15px;
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .source-choice[data-state="done"],
@@ -816,15 +816,15 @@ progress::-moz-progress-bar {
   display: block;
   margin-top: 4px;
   color: var(--muted);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .analytics-kpis small {
   display: block;
   margin-top: 3px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 14px;
 }
@@ -2182,24 +2182,25 @@ body.demo-mode #analyticsDetails {
 
 .onboarding-points strong {
   color: var(--text);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: 13px;
+  line-height: 19px;
 }
 
 .onboarding-points span {
   color: var(--muted);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: 13px;
+  line-height: 19px;
 }
 
 .onboarding-actions {
   display: none;
   gap: 8px;
-  min-width: 154px;
+  min-width: 0;
 }
 
 body.first-run .onboarding-actions {
   display: grid;
+  grid-column: 1 / -1;
   grid-template-columns: minmax(220px, 320px) auto auto;
   gap: 10px;
   align-items: center;
@@ -2216,7 +2217,7 @@ body.first-run .onboarding-actions {
   background: transparent;
   color: var(--muted);
   box-shadow: none;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .tertiary-button:hover:not(:disabled) {
@@ -2229,7 +2230,7 @@ body.first-run .onboarding-actions {
 
 .onboarding-alternative {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   text-align: center;
 }
 
@@ -2270,7 +2271,7 @@ body.first-run .run-details .quality-summary {
   border-radius: 999px;
   background: rgba(16, 185, 129, 0.08);
   color: #047857;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   line-height: 16px;
 }
@@ -2585,8 +2586,8 @@ body.first-run .run-details .quality-summary {
   max-width: none;
   margin-top: 4px;
   color: var(--muted);
-  font-size: 12px;
-  line-height: 17px;
+  font-size: 13px;
+  line-height: 19px;
 }
 
 .data-field {
@@ -2996,8 +2997,8 @@ button.action-insight:hover:not(:disabled) {
 .category-review-copy small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 13px;
+  line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3011,6 +3012,13 @@ button.action-insight:hover:not(:disabled) {
 
 .category-review-controls .select-control {
   min-width: 170px;
+}
+
+.category-review-scope {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .compact-check {
@@ -3172,14 +3180,14 @@ button.dialog-close:hover:not(:disabled) {
 
 .operation-checks .check strong {
   color: var(--text);
-  font-size: 12px;
-  line-height: 17px;
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .operation-checks .check small {
   color: var(--muted);
-  font-size: 11px;
-  line-height: 15px;
+  font-size: 12px;
+  line-height: 17px;
 }
 
 .operation-apply-similar {
@@ -3244,7 +3252,7 @@ button.dialog-close:hover:not(:disabled) {
   .tab-button {
     min-width: 0;
     padding: 8px 3px;
-    font-size: 11px;
+    font-size: 12px;
     white-space: nowrap;
   }
 
@@ -3252,7 +3260,7 @@ button.dialog-close:hover:not(:disabled) {
     min-width: 16px;
     height: 16px;
     margin-left: 2px;
-    font-size: 10px;
+    font-size: 11px;
   }
 
   .run-summary {
@@ -3406,6 +3414,7 @@ button.dialog-close:hover:not(:disabled) {
   }
 
   .source-choice {
+    min-width: 0;
     width: 100%;
   }
 
@@ -3560,7 +3569,7 @@ button.dialog-close:hover:not(:disabled) {
     justify-self: start;
     min-height: 18px;
     padding: 0;
-    font-size: 10px;
+    font-size: 12px;
   }
 
   .operation-pill {
@@ -3672,6 +3681,21 @@ button.dialog-close:hover:not(:disabled) {
   main {
     padding-right: 12px;
     padding-left: 12px;
+  }
+
+  .onboarding-panel > *,
+  body.first-run .onboarding-actions > * {
+    min-width: 0;
+  }
+
+  body.first-run .onboarding-actions button {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .onboarding-points span {
+    overflow-wrap: anywhere;
   }
 
   .detail-row {

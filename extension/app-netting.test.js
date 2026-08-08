@@ -369,6 +369,42 @@ assert.equal(context.needsOzonSettlementRepair(legacyOzonDuplicates.slice(0, 2).
   ...row,
   ozon_settlement_kind: 'full'
 }))), false, 'новые уже сверенные чеки не должны просить повторный пересбор');
+const unresolvedAndFull = legacyOzonDuplicates.slice(0, 2).map((row, index) => ({
+  ...row,
+  ozon_settlement_kind: index ? 'full' : ''
+}));
+assert.equal(context.needsOzonSettlementRepair(unresolvedAndFull), true, 'неопределённый ранний чек и итоговый расчёт требуют полного пересбора');
+assert.deepEqual(JSON.parse(JSON.stringify(context.collectKnownReceipts(unresolvedAndFull).ozon)), []);
+const liveOrderPrefix = '55887469-0288';
+const liveStyleSettlementDuplicate = [
+  {
+    source: 'ozon',
+    date: '2026-08-01',
+    title: 'Кабель USB-C',
+    amount: '500.00',
+    receipt_url: `https://www.ozon.ru/_action/downloadCheque?chequeId=${liveOrderPrefix}-ae92b46c-7399-4fa3-aeeb-e472be915820-0-0`,
+    raw_title: 'Ozon cheque',
+    parse_quality: 'complete',
+    ozon_settlement_kind: 'prepayment'
+  },
+  {
+    source: 'ozon',
+    date: '2026-08-02',
+    title: 'Кабель USB-C',
+    amount: '540.00',
+    receipt_url: `https://www.ozon.ru/_action/downloadCheque?chequeId=${liveOrderPrefix}-82307747-54ad-4999-b8da-40646d7a0fbb-0-0`,
+    raw_title: 'Ozon cheque',
+    parse_quality: 'complete',
+    ozon_settlement_kind: 'full'
+  }
+];
+assert.equal(context.legacyOzonSettlementDuplicateCount(liveStyleSettlementDuplicate), 1, 'предоплата и финальный чек с доставкой требуют ремонта');
+assert.equal(context.needsOzonSettlementRepair(liveStyleSettlementDuplicate), true);
+assert.deepEqual(JSON.parse(JSON.stringify(context.collectKnownReceipts(liveStyleSettlementDuplicate).ozon)), [], 'ремонт новых расчётов тоже требует полного Ozon-сканирования');
+const unresolvedPrepayment = liveStyleSettlementDuplicate.slice(0, 1);
+assert.equal(context.needsOzonSettlementRepair(unresolvedPrepayment), false, 'одна ожидающая предоплата ещё не является дублем');
+assert.equal(context.needsOzonFullScan(unresolvedPrepayment), true, 'ожидающая предоплата требует полного сбора до появления финального чека');
+assert.deepEqual(JSON.parse(JSON.stringify(context.collectKnownReceipts(unresolvedPrepayment).ozon)), []);
 assert.deepEqual(
   JSON.parse(JSON.stringify(context.mergeCollectedRows([{ title: 'CSV без id' }], [{ title: 'Собрано' }]))),
   [{ title: 'CSV без id' }, { title: 'Собрано' }]

@@ -35,7 +35,7 @@
 
 ## Зависимости
 
-Runtime npm-зависимостей нет. Playwright используется только для проверки и зафиксирован в `package-lock.json`. GitHub Actions закреплены полными commit SHA. PDF.js проверяется локальным hash gate и описан в `THIRD_PARTY_NOTICES.md`. GitHub alerts сообщают об известных уязвимостях; обновления применяются вручную после проверки.
+Runtime npm-зависимостей нет. Playwright используется только для проверки и зафиксирован в `package-lock.json`. GitHub Actions закреплены полными commit SHA. PDF.js проверяется локальным hash gate и описан в `THIRD_PARTY_NOTICES.md`. CodeQL проверяет JavaScript при каждом push в `main`, раз в неделю и по ручному запуску. GitHub alerts сообщают об известных уязвимостях; обновления применяются вручную после проверки.
 
 ## Владение
 
