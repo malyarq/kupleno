@@ -1,7 +1,7 @@
 {
   "name": "kupleno-release-tools",
   "private": true,
-  "version": "0.18.1",
+  "version": "0.18.2",
   "description": "Локальная проверка релизов Куплено",
   "scripts": {
     "package": "sh scripts/package-extension.sh",
