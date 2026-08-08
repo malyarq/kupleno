@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Куплено",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "minimum_chrome_version": "116",
   "description": "Локально собирает и анализирует покупки, возвраты и бюджеты Ozon, Wildberries и Яндекс Маркета.",
   "icons": {
