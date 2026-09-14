@@ -11,14 +11,14 @@
   <main id="mainContent">
     <header class="topbar">
       <div class="brand-lockup">
-        <img class="brand-mark" src="icons/icon-48.png" width="48" height="48" alt="">
+        <svg class="ui-icon brand-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z M9 8h6 M9 12l2 2 4-4"/></svg>
         <div>
           <h1>Куплено</h1>
-          <p>Покупки и возвраты с маркетплейсов — в одном понятном отчёте.</p>
+          <p>Покупки, возвраты и расходы — в одной картине.</p>
         </div>
       </div>
       <div class="top-actions">
-        <button id="themeToggle" type="button" class="secondary theme-toggle" aria-label="Тёмная тема"></button>
+        <button id="themeToggle" type="button" class="secondary theme-toggle" aria-label="Тёмная тема"><svg class="ui-icon theme-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 14a8 8 0 0 1-10-10 8.5 8.5 0 1 0 10 10Z"/></svg><svg class="ui-icon theme-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v1 M12 20v1 M3 12h1 M20 12h1 M5.6 5.6l.7.7 M17.7 17.7l.7.7 M5.6 18.4l.7-.7 M17.7 6.3l.7-.7 M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0"/></svg></button>
         <button id="collect" type="button">Добавить покупки</button>
       </div>
     </header>
@@ -27,8 +27,20 @@
       <div class="onboarding-copy">
         <span class="local-badge">Ваши данные остаются здесь</span>
         <h2 id="onboardingTitle">Все покупки — в одной понятной картине</h2>
-        <p>Выберите ниже магазины, где вы уже вошли. Куплено соберёт суммы, категории и возвраты, не отправляя историю покупок наружу.</p>
+        <p>Выберите магазины, где уже вошли в аккаунт. Куплено соберёт покупки и возвраты, а история останется в этом браузере.</p>
       </div>
+      <svg class="journal-art" viewBox="0 0 240 180" fill="none" aria-hidden="true" focusable="false">
+ <ellipse cx="119" cy="155" rx="90" ry="9" fill="currentColor" opacity=".05"/>
+ <g transform="rotate(-12 100 90)" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+ <path d="M56 30h88v117l-8-5-8 5-8-5-8 5-8-5-8 5-8-5-8 5-8-5-8 5-8-5V30Z" fill="var(--panel-strong)"/>
+ <path d="M73 52h50 M73 64h26 M73 86h50 M73 98h50 M73 120h20 M113 120h10" opacity=".5"/>
+ </g>
+ <g transform="rotate(9 151 90)" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+ <rect x="121" y="59" width="72" height="85" rx="5" fill="var(--accent-soft)"/>
+ <path d="M139 62V51c0-20 36-20 36 0v11 M142 100l11 11 19-22"/>
+ </g>
+ <path d="M38 66l-9-3 M42 49l-5-7 M204 39l5-7 M208 54l10-2" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>
+</svg>
       <ol class="onboarding-points">
         <li><strong>Без аккаунта</strong><span>Работает с уже открытыми магазинами.</span></li>
         <li><strong>Без облака</strong><span>История остаётся в этом браузере.</span></li>
@@ -58,7 +70,7 @@
 
     <div id="runDetails" class="run-details">
       <section class="sources" aria-label="Источники сбора">
-        <span class="control-label">Где искать покупки?</span>
+        <span class="control-label">1. Выберите магазины</span>
         <label class="check source-choice" data-source="ozon">
           <input id="sourceOzon" type="checkbox">
           <span class="source-choice-copy"><span><span class="source-badge ozon">O</span><strong>Ozon</strong></span><small id="sourceOzonState">Не выбран</small></span>
@@ -71,7 +83,7 @@
           <input id="sourceYandex" type="checkbox">
           <span class="source-choice-copy"><span><span class="source-badge yandex">Я</span><strong>Яндекс Маркет</strong></span><small id="sourceYandexState">Не выбран</small></span>
         </label>
-        <span class="source-permission-note">Выберите хотя бы один магазин. Если вход не выполнен, откройте его сайт и войдите.</span>
+        <span class="source-permission-note">Отметьте хотя бы один магазин. Если вход не выполнен, откройте его сайт и войдите.</span>
         <details class="permission-details">
           <summary>Зачем браузер просит доступ?</summary>
           <p>Только чтобы по вашей команде прочитать заказы на отмеченных сайтах. Для Wildberries нужен также доступ к его cookie входа. Пароли Куплено не читает. Доступ можно отозвать в разделе «Настройки».</p>
@@ -81,7 +93,7 @@
       <section class="status">
         <div id="statusText" role="status" aria-live="polite">Можно начинать.</div>
         <progress id="progress" value="0" max="1"></progress>
-        <p id="collectHint" class="collect-hint" hidden>Сбор может занять несколько минут. Страницу можно закрыть: при следующем открытии Куплено продолжит ждать результат.</p>
+        <p id="collectHint" class="collect-hint" hidden>Сбор может занять несколько минут. Страницу можно закрыть: при следующем открытии Куплено проверит результат.</p>
         <div id="sourceStatuses" class="source-statuses" hidden></div>
       </section>
 
@@ -101,7 +113,8 @@
       </section>
     </div>
 
-    <div class="onboarding-actions">
+    <div class="onboarding-actions onboarding-step">
+      <span class="control-label">2. Соберите историю</span>
       <button id="onboardingStart" type="button" disabled>Собрать покупки</button>
       <button id="onboardingDemo" type="button" class="tertiary-button">Посмотреть пример</button>
       <details class="onboarding-alternative">
@@ -113,18 +126,18 @@
     <section id="updateBanner" class="update-banner" hidden></section>
 
     <nav class="view-tabs" aria-label="Разделы" role="tablist">
-      <button class="tab-button active" type="button" data-view="analytics" role="tab" aria-controls="analyticsView" aria-selected="true">Отчёт</button>
-      <button class="tab-button" type="button" data-view="categories" role="tab" tabindex="-1" aria-controls="categoriesView" aria-selected="false">Категории <span id="categoryReviewBadge" class="tab-badge" hidden>0</span></button>
-      <button class="tab-button" type="button" data-view="control" role="tab" tabindex="-1" aria-controls="controlView" aria-selected="false">Проверить <span id="controlBadge" class="tab-badge" hidden>0</span></button>
-      <button class="tab-button" type="button" data-view="data" role="tab" tabindex="-1" aria-controls="dataView" aria-selected="false">Настройки</button>
+      <button class="tab-button active" type="button" data-view="analytics" role="tab" aria-controls="analyticsView" aria-selected="true"><svg class="ui-icon " viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20V4 M4 20h16 M8 16v-4 M13 16V7 M18 16v-7"/></svg>Отчёт</button>
+      <button class="tab-button" type="button" data-view="categories" role="tab" tabindex="-1" aria-controls="categoriesView" aria-selected="false"><svg class="ui-icon " viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 4h6v6H4Z M14 4h6v6h-6Z M4 14h6v6H4Z M14 14h6v6h-6Z"/></svg>Категории <span id="categoryReviewBadge" class="tab-badge" hidden>0</span></button>
+      <button class="tab-button" type="button" data-view="control" role="tab" tabindex="-1" aria-controls="controlView" aria-selected="false"><svg class="ui-icon " viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 11l2 2 4-4 M12 3l8 3v6c0 4-4 7-8 9-4-2-8-5-8-9V6Z"/></svg>Проверить <span id="controlBadge" class="tab-badge" hidden>0</span></button>
+      <button class="tab-button" type="button" data-view="data" role="tab" tabindex="-1" aria-controls="dataView" aria-selected="false"><svg class="ui-icon " viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16 M4 17h16 M8 4v6 M16 14v6"/></svg>Настройки</button>
     </nav>
 
     <section id="analyticsView" class="analytics view-panel active" role="tabpanel" tabindex="-1" aria-label="Отчёт" aria-hidden="false">
       <div class="analytics-titlebar">
-        <h2>Ваши покупки</h2>
+        <h2>Расходы</h2>
         <details class="analytics-filter-details">
-          <summary>Период и фильтры</summary>
-          <div class="analytics-controls">
+          <summary id="analyticsFilterToggle" aria-controls="analyticsFilterPanel" aria-expanded="false"><svg class="ui-icon " viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16 M4 17h16 M8 4v6 M16 14v6"/></svg>Период и фильтры</summary>
+          <div id="analyticsFilterPanel" class="analytics-controls analytics-filter-panel" aria-label="Период и фильтры" aria-hidden="true" inert>
           <label class="field active-profile-field">
             <span>Чьи покупки</span>
             <span class="select-control compact-select">
@@ -205,9 +218,16 @@
         </div>
       </div>
 
+      <div class="analytics-kpis">
+        <div><strong id="analyticsTotal">0</strong><span id="analyticsTotalLabel">потрачено</span><small id="analyticsTotalCompare"></small></div>
+        <div><strong id="analyticsAverage">0</strong><span id="analyticsAverageLabel">в среднем за месяц</span></div>
+        <div><strong id="analyticsRefunds">0</strong><span>возвращено</span></div>
+        <div><strong id="analyticsPurchases">0</strong><span id="analyticsPurchasesLabel">операций</span></div>
+      </div>
+
       <section id="homeGuide" class="home-guide" hidden aria-labelledby="homeGuideTitle" aria-live="polite">
         <div class="home-guide-main">
-          <span id="homeGuideKicker" class="home-guide-kicker">Что сделать сейчас</span>
+          <span id="homeGuideKicker" class="home-guide-kicker">Следующий шаг</span>
           <h2 id="homeGuideTitle">Всё в порядке</h2>
           <p id="homeGuideText">Срочных действий нет.</p>
           <div class="home-guide-actions">
@@ -216,17 +236,10 @@
           </div>
         </div>
         <div id="homeNextSteps" class="home-next-steps" hidden>
-          <strong>Потом, если захотите</strong>
+          <strong>Позже, если захотите</strong>
           <ol id="homeNextStepList"></ol>
         </div>
       </section>
-
-      <div class="analytics-kpis">
-        <div><strong id="analyticsTotal">0</strong><span id="analyticsTotalLabel">потрачено</span><small id="analyticsTotalCompare"></small></div>
-        <div><strong id="analyticsAverage">0</strong><span id="analyticsAverageLabel">в среднем за месяц</span></div>
-        <div><strong id="analyticsRefunds">0</strong><span>возвращено</span></div>
-        <div><strong id="analyticsPurchases">0</strong><span id="analyticsPurchasesLabel">операций</span></div>
-      </div>
 
       <div class="analytics-layout">
         <div class="analytics-main">
@@ -280,6 +293,7 @@
             <h3>Самые крупные покупки</h3>
             <p class="card-hint">Нажмите товар, чтобы увидеть все связанные операции.</p>
             <ol id="topItems" class="top-items"></ol>
+            <div id="unreadReceipts" class="unread-receipts" hidden></div>
           </div>
         </div>
       </div>
@@ -306,11 +320,55 @@
       <details id="analyticsDetails" class="chart-panel disclosure-card analytics-more">
         <summary id="toggleAnalyticsDetails" class="analytics-details-toggle" aria-expanded="false">
           <span>
-            <strong>Все покупки и подробности</strong>
-            <small>Операции, магазины, бюджет и проверка полноты сбора.</small>
+            <strong>Все покупки</strong>
+            <small>Найти покупку, открыть чек или изменить запись.</small>
           </span>
         </summary>
         <div class="disclosure-body analytics-more-body">
+<div class="chart-panel detail-panel">
+          <div class="panel-head">
+            <h3 id="detailTitle">Детали операций</h3>
+            <div class="panel-head-actions">
+              <div class="detail-operation-tabs" role="group" aria-label="Тип операций">
+                <button type="button" class="detail-operation active" data-operation="all" aria-pressed="true">Все</button>
+                <button type="button" class="detail-operation" data-operation="purchase" aria-pressed="false">Покупки</button>
+                <button type="button" class="detail-operation" data-operation="refund" aria-pressed="false">Возвраты</button>
+              </div>
+              <input id="detailSearch" class="detail-search" type="search" placeholder="Поиск по товару" aria-label="Поиск по товару">
+              <label class="detail-page-size">
+                <span>Показывать</span>
+                <select id="detailPageSize" aria-label="Сколько покупок показывать">
+                  <option value="60" selected>60</option>
+                  <option value="100">100</option>
+                  <option value="200">200</option>
+                  <option value="500">500</option>
+                </select>
+              </label>
+              <span id="detailSummary"></span>
+              <button id="clearDetailFilter" type="button" class="secondary category-toggle" hidden>Сбросить</button>
+            </div>
+          </div>
+          <div id="bulkBar" class="bulk-bar" hidden aria-live="polite">
+            <strong id="bulkCount">Выбрано: 0</strong>
+            <span class="select-control compact-select">
+              <select id="bulkCategory" aria-label="Категория для выбранных операций">
+                <option value="">Категория…</option>
+              </select>
+            </span>
+            <span class="select-control compact-select">
+              <select id="bulkProfile" aria-label="Профиль для выбранных операций">
+                <option value="">Профиль…</option>
+              </select>
+            </span>
+            <button id="bulkApply" type="button">Применить</button>
+            <button id="bulkExclude" type="button" class="secondary">Исключить</button>
+            <button id="bulkInclude" type="button" class="secondary">Вернуть</button>
+            <button id="bulkClear" type="button" class="secondary">Снять выбор</button>
+          </div>
+          <div id="detailRows" class="detail-rows"></div>
+          <button id="detailMore" type="button" class="secondary detail-more" hidden>Показать ещё</button>
+            </div>
+<details id="analyticsReports" class="chart-panel disclosure-card"><summary><span><strong>Дополнительные отчёты и бюджет</strong><small>Сводка по магазинам, лимиты и полнота сбора.</small></span></summary><div class="disclosure-body">
           <section id="reportTrust" class="report-trust" hidden aria-live="polite">
             <div>
               <span id="reportTrustBadge" class="local-badge">Качество отчёта</span>
@@ -384,58 +442,17 @@
             </div>
               </details>
             </div>
-            <div class="chart-panel detail-panel">
-          <div class="panel-head">
-            <h3 id="detailTitle">Детали операций</h3>
-            <div class="panel-head-actions">
-              <div class="detail-operation-tabs" role="group" aria-label="Тип операций">
-                <button type="button" class="detail-operation active" data-operation="all" aria-pressed="true">Все</button>
-                <button type="button" class="detail-operation" data-operation="purchase" aria-pressed="false">Покупки</button>
-                <button type="button" class="detail-operation" data-operation="refund" aria-pressed="false">Возвраты</button>
-              </div>
-              <input id="detailSearch" class="detail-search" type="search" placeholder="Поиск по товару" aria-label="Поиск по товару">
-              <label class="detail-page-size">
-                <span>Показывать</span>
-                <select id="detailPageSize" aria-label="Сколько покупок показывать">
-                  <option value="60" selected>60</option>
-                  <option value="100">100</option>
-                  <option value="200">200</option>
-                  <option value="500">500</option>
-                </select>
-              </label>
-              <span id="detailSummary"></span>
-              <button id="clearDetailFilter" type="button" class="secondary category-toggle" hidden>Сбросить</button>
-            </div>
+
           </div>
-          <div id="bulkBar" class="bulk-bar" hidden aria-live="polite">
-            <strong id="bulkCount">Выбрано: 0</strong>
-            <span class="select-control compact-select">
-              <select id="bulkCategory" aria-label="Категория для выбранных операций">
-                <option value="">Категория…</option>
-              </select>
-            </span>
-            <span class="select-control compact-select">
-              <select id="bulkProfile" aria-label="Профиль для выбранных операций">
-                <option value="">Профиль…</option>
-              </select>
-            </span>
-            <button id="bulkApply" type="button">Применить</button>
-            <button id="bulkExclude" type="button" class="secondary">Исключить</button>
-            <button id="bulkInclude" type="button" class="secondary">Вернуть</button>
-            <button id="bulkClear" type="button" class="secondary">Снять выбор</button>
-          </div>
-          <div id="detailRows" class="detail-rows"></div>
-          <button id="detailMore" type="button" class="secondary detail-more" hidden>Показать ещё</button>
-            </div>
-          </div>
-        </div>
+        </div></details>
+</div>
       </details>
     </section>
 
     <section id="categoriesView" class="category-review-view view-panel" role="tabpanel" tabindex="-1" inert aria-label="Категории покупок" aria-hidden="true">
       <div class="data-titlebar category-review-titlebar">
         <div>
-          <h2>Категории покупок</h2>
+          <h2>Уточнение категорий</h2>
           <p>Отчёт уже готов — разбирать всю историю не нужно. Если захотите повысить точность, исправьте несколько самых заметных групп: одно решение применяется ко всем похожим покупкам.</p>
         </div>
         <button id="reviewAllCategories" type="button" class="secondary">Посмотреть все категории</button>
@@ -454,8 +471,8 @@
     <section id="controlView" class="control-view view-panel" role="tabpanel" tabindex="-1" inert aria-label="Что стоит проверить" aria-hidden="true">
       <div class="data-titlebar control-titlebar">
         <div>
-          <h2>Что стоит проверить</h2>
-          <p>Возможные повторы, изменения цены, возвраты и гарантии. Решения всегда остаются за вами.</p>
+          <h2>Проверка покупок</h2>
+          <p>Здесь собраны возможные повторы, изменения цен, возвраты и гарантии. Решение остаётся за вами.</p>
         </div>
         <span class="local-badge">Без внешних сервисов</span>
       </div>
@@ -557,7 +574,7 @@
       </div>
 
       <section id="localPrivacyCard" class="privacy-local-card" aria-labelledby="localPrivacyTitle">
-        <div class="privacy-icon" aria-hidden="true">✓</div>
+        <div class="privacy-icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M7 10V7a5 5 0 0 1 10 0v3 M5 10h14v11H5Z M12 14v3"/></svg></div>
         <div>
           <span class="local-badge">Хранится локально</span>
           <h3 id="localPrivacyTitle">История остаётся на этом устройстве</h3>
@@ -567,7 +584,7 @@
       </section>
 
       <div class="data-grid">
-        <details class="chart-panel data-card disclosure-card" aria-labelledby="profilesTitle">
+        <details class="chart-panel data-card disclosure-card settings-card settings-card-profiles" aria-labelledby="profilesTitle" name="settings">
           <summary class="panel-head">
             <div>
               <strong id="profilesTitle">Разделять покупки</strong>
@@ -595,7 +612,7 @@
           </div>
         </details>
 
-        <section class="chart-panel data-card" aria-labelledby="backupTitle">
+        <section class="chart-panel data-card settings-card settings-card-backup" aria-labelledby="backupTitle">
           <div class="panel-head">
             <div>
               <h3 id="backupTitle">Сохранить или перенести данные</h3>
@@ -613,7 +630,7 @@
           <p class="privacy-note">Резервная копия и CSV/JSON содержат финансовые данные. Полный CSV включает исключённые операции, профиль и заметки; резервная копия остаётся основным форматом восстановления. CSV без названий сохраняет месяцы, точные суммы, источники и категории — это не анонимный набор.</p>
         </section>
 
-        <details class="chart-panel data-card disclosure-card" aria-labelledby="historyTitle">
+        <details class="chart-panel data-card disclosure-card settings-card settings-card-history" aria-labelledby="historyTitle" name="settings">
           <summary class="panel-head">
             <div>
               <strong id="historyTitle">Вернуть прошлую версию данных</strong>
@@ -627,7 +644,7 @@
           </div>
         </details>
 
-        <details class="chart-panel data-card disclosure-card" aria-labelledby="categoryRulesTitle">
+        <details class="chart-panel data-card disclosure-card settings-card settings-card-rules" aria-labelledby="categoryRulesTitle" name="settings">
           <summary class="panel-head">
             <div>
               <strong id="categoryRulesTitle">Свои правила категорий</strong>
@@ -682,7 +699,7 @@
           </div>
         </details>
 
-        <details class="chart-panel data-card data-card-wide disclosure-card" aria-labelledby="overridesTitle">
+        <details class="chart-panel data-card data-card-wide disclosure-card settings-card settings-card-overrides" aria-labelledby="overridesTitle" name="settings">
           <summary class="panel-head">
             <div>
               <strong id="overridesTitle">Мои ручные изменения</strong>
@@ -701,7 +718,7 @@
           </div>
         </details>
 
-        <section class="chart-panel data-card data-card-wide danger-zone" aria-labelledby="dangerZoneTitle">
+        <section class="chart-panel data-card data-card-wide danger-zone settings-card settings-card-danger" aria-labelledby="dangerZoneTitle">
           <div>
             <h3 id="dangerZoneTitle">Удалить локальные данные</h3>
             <p class="card-hint">История покупок, профили, бюджеты и правила будут удалены с этого устройства без возможности восстановления.</p>
@@ -727,6 +744,19 @@
     </section>
   </main>
 
+  <dialog id="operationsDialog" class="operations-dialog" aria-labelledby="operationsDialogTitle">
+    <div class="inspector-head"><h2 id="operationsDialogTitle">Выбранные покупки</h2><button id="operationsDialogClose" type="button" class="secondary">Вернуться к отчёту</button></div>
+    <div id="operationsDialogBody"></div>
+  </dialog>
+
+  <dialog id="purchaseInspector" class="purchase-inspector" aria-labelledby="purchaseInspectorTitle">
+    <div class="inspector-head">
+      <div><h2 id="purchaseInspectorTitle">Покупка</h2><p id="purchaseInspectorSummary"></p></div>
+      <button id="purchaseInspectorClose" type="button" class="secondary">Закрыть</button>
+    </div>
+    <div id="purchaseInspectorList" class="inspector-list"></div>
+  </dialog>
+
   <dialog id="operationEditor" class="operation-editor" aria-labelledby="operationEditorTitle">
     <form class="operation-editor-form" method="dialog">
       <div class="operation-editor-head">
@@ -738,6 +768,7 @@
       </div>
 
       <div id="operationTitlePreview" class="operation-title-preview">Название выбранной операции</div>
+      <div id="operationReceipt" class="operation-receipt"></div>
 
       <div class="operation-fields-grid">
         <label class="data-field">

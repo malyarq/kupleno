@@ -640,7 +640,7 @@
           meta.put({ key: dataEpochKey, value: nextEpoch });
           meta.put({ key: snapshotRevisionKey, value: nextRevision });
           await done;
-          return nextEpoch;
+          return { epoch: nextEpoch, revision: nextRevision };
         } catch (error) {
           try {
             transaction.abort();

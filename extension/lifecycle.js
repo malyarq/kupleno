@@ -334,7 +334,7 @@
   }
 
   const returnFields = new Set([
-    'id', 'rowId', 'marketplace_id', 'source', 'title', 'expectedAmount', 'amount', 'requestedAt', 'purchaseDate', 'dueDate', 'status',
+    'id', 'rowId', 'marketplace_id', 'profile', 'source', 'title', 'expectedAmount', 'amount', 'requestedAt', 'purchaseDate', 'dueDate', 'status',
     'manualMatchRowIds', 'confirmedAt', 'note', 'candidateRowIds', 'matchedRowIds', 'receivedAmount', 'outstandingAmount'
   ]);
 
@@ -361,6 +361,7 @@
       id,
       rowId: rowId || null,
       marketplace_id: marketplaceId || null,
+      profile: stringValue(value.profile, 'return.profile', { maxLength: 160 }) || null,
       source: stringValue(value.source, 'return.source', { maxLength: 64 }) || null,
       title: stringValue(value.title, 'return.title', { required: true, maxLength: 500 }),
       expectedAmount: money(value.expectedAmount ?? value.amount, 'return.expectedAmount', { positive: true }),
@@ -388,6 +389,7 @@
       return [{
         rowId,
         marketplace_id: stringValue(row.marketplace_id, `rows[${index}].marketplace_id`, { maxLength: 300 }) || null,
+        profile: stringValue(row.profile, `rows[${index}].profile`, { maxLength: 160 }) || null,
         source: stringValue(row.source, `rows[${index}].source`, { maxLength: 64 }) || null,
         title: stringValue(row.title, `rows[${index}].title`, { required: true, maxLength: 500 }),
         amount: Math.abs(amount),
@@ -401,6 +403,7 @@
   }
 
   function compatibleReturnRow(expected, refund) {
+    if (expected.profile && refund.profile && expected.profile !== refund.profile) return false;
     if (expected.source && refund.source && expected.source !== refund.source) return false;
     if (expected.purchaseDate && refund.date < expected.purchaseDate) return false;
     return true;
@@ -414,16 +417,22 @@
       && compatibleReturnRow(expected, refund));
   }
 
-  function disputedMatch(expected, refund) {
+  function disputedCandidateKey(title, source) {
+    return source ? `${normalizedText(title)}\u0001${source}` : null;
+  }
+
+  function disputedMatch(expected, refund, outstandingAmount) {
     return compatibleReturnRow(expected, refund)
+      && Boolean(expected.source)
+      && expected.source === refund.source
       && normalizedText(expected.title) === normalizedText(refund.title)
-      && Math.abs(expected.expectedAmount - refund.amount) < 0.005;
+      && refund.amount <= outstandingAmount + 0.005;
   }
 
   function statusForReturn(expected, receivedAmount, hasDispute, today) {
     if (receivedAmount >= expected.expectedAmount - 0.005) return 'received';
-    if (receivedAmount > 0) return 'partial';
     if (hasDispute || expected.status === 'disputed') return 'disputed';
+    if (receivedAmount > 0) return 'partial';
     return today > expected.dueDate ? 'overdue' : 'pending';
   }
 
@@ -440,19 +449,33 @@
     const refunds = normalizeRefundRows(rows);
     const refundsByRowId = new Map(refunds.map((refund) => [refund.rowId, refund]));
     const refundsByMarketplaceId = new Map();
-    const refundsByFingerprint = new Map();
+    const refundsByDisputedCandidateKey = new Map();
     for (const refund of refunds) {
       if (refund.marketplace_id) {
         const bucket = refundsByMarketplaceId.get(refund.marketplace_id) || [];
         bucket.push(refund);
         refundsByMarketplaceId.set(refund.marketplace_id, bucket);
       }
-      const fingerprint = `${normalizedText(refund.title)}\u0001${refund.amount.toFixed(2)}`;
-      const bucket = refundsByFingerprint.get(fingerprint) || [];
-      bucket.push(refund);
-      refundsByFingerprint.set(fingerprint, bucket);
+      const candidateKey = disputedCandidateKey(refund.title, refund.source);
+      if (candidateKey) {
+        const bucket = refundsByDisputedCandidateKey.get(candidateKey) || [];
+        bucket.push(refund);
+        refundsByDisputedCandidateKey.set(candidateKey, bucket);
+      }
+    }
+    const manualReservationOwners = new Map();
+    for (const item of expected) {
+      for (const rowId of item.manualMatchRowIds) {
+        const refund = refundsByRowId.get(rowId);
+        if (!refund) throw new TypeError(`return ${item.id}: вручную подтверждённая строка возврата не найдена.`);
+        if (!compatibleReturnRow(item, refund)) throw new TypeError(`return ${item.id}: вручное совпадение не подходит к ожидаемому возврату.`);
+        if (manualReservationOwners.has(rowId)) throw new TypeError(`return ${item.id}: строка возврата уже привязана к другому ожиданию.`);
+        manualReservationOwners.set(rowId, item.id);
+      }
     }
     const used = new Set();
+    const isUnavailable = (item, refund) => used.has(refund.rowId)
+      || (manualReservationOwners.has(refund.rowId) && manualReservationOwners.get(refund.rowId) !== item.id);
     const returns = expected.map((item) => {
       const manual = item.manualMatchRowIds.map((rowId) => refundsByRowId.get(rowId));
       if (manual.some((refund) => !refund)) throw new TypeError(`return ${item.id}: вручную подтверждённая строка возврата не найдена.`);
@@ -462,7 +485,7 @@
       let matches = manual;
       if (!matches.length) {
         const candidates = (refundsByMarketplaceId.get(item.marketplace_id) || [])
-          .filter((refund) => !used.has(refund.rowId) && exactIdMatch(item, refund));
+          .filter((refund) => !isUnavailable(item, refund) && exactIdMatch(item, refund));
         const exactAmount = candidates.find((refund) => Math.abs(refund.amount - item.expectedAmount) < 0.005);
         if (exactAmount) {
           matches = [exactAmount];
@@ -478,10 +501,13 @@
       }
       matches.forEach((refund) => used.add(refund.rowId));
       const receivedAmount = roundMoney(matches.reduce((sum, refund) => sum + refund.amount, 0));
-      const fingerprint = `${normalizedText(item.title)}\u0001${item.expectedAmount.toFixed(2)}`;
-      const candidateRowIds = matches.length ? [] : (refundsByFingerprint.get(fingerprint) || [])
-        .filter((refund) => !used.has(refund.rowId) && disputedMatch(item, refund))
-        .map((refund) => refund.rowId);
+      const outstandingAmount = roundMoney(Math.max(0, item.expectedAmount - receivedAmount));
+      const candidateKey = disputedCandidateKey(item.title, item.source);
+      const candidateRowIds = outstandingAmount > 0 && candidateKey
+        ? (refundsByDisputedCandidateKey.get(candidateKey) || [])
+          .filter((refund) => !isUnavailable(item, refund) && disputedMatch(item, refund, outstandingAmount))
+          .map((refund) => refund.rowId)
+        : [];
       const status = statusForReturn(item, receivedAmount, candidateRowIds.length > 0, today);
       return {
         ...item,
@@ -489,7 +515,7 @@
         matchedRowIds: matches.map((refund) => refund.rowId),
         candidateRowIds,
         receivedAmount,
-        outstandingAmount: roundMoney(Math.max(0, item.expectedAmount - receivedAmount))
+        outstandingAmount
       };
     });
 
@@ -521,9 +547,16 @@
     if (selected.some((rowId) => !initial.candidateRowIds.includes(rowId))) {
       throw new TypeError('rowIds: можно подтвердить только предложенное спорное совпадение.');
     }
+    const refundsByRowId = new Map(normalizeRefundRows(rows).map((refund) => [refund.rowId, refund]));
+    const selectedRefunds = selected.map((rowId) => refundsByRowId.get(rowId));
+    const confirmedAmount = initial.matchedRowIds.reduce((sum, rowId) => sum + (refundsByRowId.get(rowId)?.amount || 0), 0)
+      + selectedRefunds.reduce((sum, refund) => sum + (refund?.amount || 0), 0);
+    if (confirmedAmount > initial.expectedAmount + 0.005) {
+      throw new TypeError('rowIds: сумма подтверждённых возвратов превышает ожидаемую.');
+    }
     return {
       ...normalizeExpectedReturn(expectedReturn, options),
-      manualMatchRowIds: selected,
+      manualMatchRowIds: [...initial.matchedRowIds, ...selected],
       confirmedAt: nowDay(options.now),
       status: 'pending'
     };

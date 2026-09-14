@@ -654,22 +654,73 @@
         .sort((left, right) => latestDate(right).localeCompare(latestDate(left)));
 
       for (const receiptRows of candidates) {
-        const matchedFullRows = [];
+        const reservations = new Map();
+        const rowsToSuppress = [];
+        const itemGroups = new Map();
         for (const row of receiptRows) {
-          const match = fullRows.find((fullRow) => (fullAvailableCents.get(fullRow) || 0) > 0
-            && !matchedFullRows.includes(fullRow)
-            && String(fullRow.date || '') >= String(row.date || '')
-            && ozonSettlementRowKey(fullRow) === ozonSettlementRowKey(row));
-          if (!match) {
-            matchedFullRows.length = 0;
-            break;
-          }
-          matchedFullRows.push(match);
+          const key = ozonDedupTitle(row.title);
+          if (!itemGroups.has(key)) itemGroups.set(key, []);
+          itemGroups.get(key).push(row);
         }
-        if (matchedFullRows.length !== receiptRows.length) continue;
-        for (const row of receiptRows) suppressedUnresolvedRows.add(row);
-        for (const fullRow of matchedFullRows) fullAvailableCents.set(fullRow, 0);
-        duplicateRowsDropped += receiptRows.length;
+        // Resolve merchandise independently: an unrelated returned or missing
+        // item must not keep a confirmed duplicate in the same receipt.
+        for (const [title, items] of itemGroups) {
+          if (isOzonDeliveryTitle(title)) continue;
+          const unmatched = [];
+          for (const row of items) {
+            const match = fullRows.find((fullRow) => !reservations.has(fullRow)
+              && (fullAvailableCents.get(fullRow) || 0) === ozonAmountCents(row.amount)
+              && String(fullRow.date || '') >= String(row.date || '')
+              && ozonDedupTitle(fullRow.title) === title);
+            if (!match) { unmatched.push(row); continue; }
+            reservations.set(match, ozonAmountCents(match.amount));
+            rowsToSuppress.push(row);
+          }
+          // Quantities may be combined into one line or split over receipts.
+          // Accept only equal group totals, never a price-tolerance guess.
+          if (unmatched.length) {
+            const available = fullRows.filter((row) => !reservations.has(row)
+              && (fullAvailableCents.get(row) || 0) > 0
+              && ozonDedupTitle(row.title) === title
+              && String(row.date || '') >= latestDate(unmatched));
+            const needed = unmatched.reduce((sum, row) => sum + ozonAmountCents(row.amount), 0);
+            if (available.reduce((sum, row) => sum + fullAvailableCents.get(row), 0) === needed) {
+              for (const row of available) reservations.set(row, fullAvailableCents.get(row));
+              rowsToSuppress.push(...unmatched);
+            }
+          }
+        }
+        if (!rowsToSuppress.length && receiptRows.some((row) => !isOzonDeliveryTitle(row.title))) continue;
+        // Delivery can be split over several final receipts. Reserve cents
+        // transactionally; an uncovered delivery charge remains in the report.
+        const deliveries = receiptRows.filter((row) => isOzonDeliveryTitle(row.title));
+        const deliveryReservations = new Map();
+        let covered = true;
+        for (const delivery of deliveries) {
+          let remaining = ozonAmountCents(delivery.amount);
+          for (const fullRow of fullRows) {
+            if (!isOzonDeliveryTitle(fullRow.title)
+              || String(fullRow.date || '') < String(delivery.date || '')) continue;
+            const reserved = deliveryReservations.get(fullRow) || 0;
+            const available = (fullAvailableCents.get(fullRow) || 0) - reserved;
+            const consumed = Math.min(remaining, available);
+            if (consumed <= 0) continue;
+            deliveryReservations.set(fullRow, reserved + consumed);
+            remaining -= consumed;
+            if (!remaining) break;
+          }
+          if (remaining) { covered = false; break; }
+        }
+        if (covered) {
+          rowsToSuppress.push(...deliveries);
+          for (const [row, cents] of deliveryReservations) reservations.set(row, cents);
+        }
+        if (!rowsToSuppress.length) continue;
+        for (const row of rowsToSuppress) suppressedUnresolvedRows.add(row);
+        for (const [row, cents] of reservations) {
+          fullAvailableCents.set(row, fullAvailableCents.get(row) - cents);
+        }
+        duplicateRowsDropped += rowsToSuppress.length;
         supersededReceipts.add(ozonReceiptKey(receiptRows[0]));
       }
 
@@ -1305,7 +1356,7 @@
       }
     }
 
-    return { receipts: [], nextReceiptUid: '' };
+    return null;
   }
 
   async function fetchWbReceiptsPage({ token, pageSize, nextReceiptUid }) {
@@ -1319,7 +1370,9 @@
         authorization: `Bearer ${token}`
       }
     });
-    return normalizeWbReceiptPayload(JSON.parse(text));
+    const page = normalizeWbReceiptPayload(JSON.parse(text));
+    if (!page) throw new Error('Wildberries: API вернул неизвестный формат списка чеков.');
+    return page;
   }
 
   function wbPageSizeCandidates(pageSize) {
@@ -1853,7 +1906,9 @@
       decodeHtmlEntities,
       extractYandexPageTokenFromHtml,
       hasYandexNextOrdersPage,
-      assertCollectedRowLimit
+      assertCollectedRowLimit,
+      normalizeWbReceiptPayload,
+      collectWildberries
     });
   }
 })();

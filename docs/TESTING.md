@@ -9,6 +9,8 @@ npm run verify
 npm run verify:reproducible
 ```
 
+В Windows команды выполняются в Git Bash с доступными `zip`, `unzip` и `shasum`. Окончания строк закреплены в `.gitattributes`, чтобы SHA встроенных библиотек и состав архива не зависели от checkout. Если установленный Playwright Chromium не запускается, можно явно указать отдельный Chromium for Testing через `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`; такой прогон нужно отметить вместе с фактической версией браузера.
+
 `verify` включает:
 
 - все `extension/*.test.js` последовательно;

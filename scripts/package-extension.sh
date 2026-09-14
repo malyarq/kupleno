@@ -10,6 +10,9 @@ README.md
 app.css
 app.html
 app.js
+fonts/golos-regular.ttf
+fonts/golos-bold.ttf
+fonts/OFL.txt
 analytics-core.js
 analytics-utils.js
 background.js
@@ -51,6 +54,7 @@ fi
 
 OUTPUT=${1:-"$ROOT/dist/kupleno-extension.zip"}
 case "$OUTPUT" in
+  [A-Za-z]:[\\/]*) OUTPUT=$(cygpath -u "$OUTPUT") ;;
   /*) ;;
   *) OUTPUT="$ROOT/$OUTPUT" ;;
 esac

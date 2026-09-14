@@ -1,4 +1,7 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 const { createCollectJobStore } = require('./collect-job-store.js');
 
 function memorySession() {
@@ -84,6 +87,82 @@ async function main() {
   await assert.rejects(unavailable.clear(), /недоступно/);
   await assert.rejects(unavailable.cleanup(), /недоступно/);
   await assert.rejects(firstWorker.load('../bad'), /Некорректный идентификатор/);
+
+  const savedJobs = [];
+  const storedResult = { rows: [{ title: 'Чай' }] };
+  let jobStoreRemoveCalls = 0;
+  let resultStoreRemoveCalls = 0;
+  const jobStore = {
+    async load() {
+      return { owner: 'previous-worker', status: 'running', error: '', updatedAt: '2026-07-16T10:00:00.000Z' };
+    },
+    async save(id, job) {
+      savedJobs.push({ id, job: JSON.parse(JSON.stringify(job)) });
+    },
+    async remove() {
+      jobStoreRemoveCalls += 1;
+      throw new Error('готовый результат не должен удаляться');
+    },
+    wasInterrupted(job) {
+      return job.status === 'running';
+    }
+  };
+  const resultStore = {
+    async load() {
+      return storedResult;
+    },
+    async remove() {
+      resultStoreRemoveCalls += 1;
+      throw new Error('готовый результат не должен удаляться');
+    }
+  };
+  const backgroundContext = {
+    console,
+    globalThis: null,
+    crypto: { randomUUID: () => 'new-worker' },
+    chrome: { storage: { session } },
+    KuplenoCollectJobStore: { createCollectJobStore: () => jobStore },
+    KuplenoCollectResultStore: { createCollectResultStore: () => resultStore },
+    module: { exports: {} }
+  };
+  backgroundContext.globalThis = backgroundContext;
+  vm.createContext(backgroundContext);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, 'background.js'), 'utf8'), backgroundContext);
+  const crashRecovered = await backgroundContext.module.exports.collectJobResponse('crash-between-stores');
+  assert.equal(JSON.stringify(crashRecovered), JSON.stringify({ ok: true, status: 'done', ...storedResult }));
+  assert.deepEqual(savedJobs, [{
+    id: 'crash-between-stores',
+    job: {
+      owner: 'previous-worker',
+      status: 'done',
+      error: '',
+      updatedAt: '2026-07-16T10:00:00.000Z',
+      result: storedResult
+    }
+  }]);
+
+  let failedPromotionSaveAttempts = 0;
+  const failedPromotionJobStore = {
+    ...jobStore,
+    async save() {
+      failedPromotionSaveAttempts += 1;
+      throw new Error('session temporarily unavailable');
+    }
+  };
+  const failedPromotionContext = {
+    ...backgroundContext,
+    globalThis: null,
+    KuplenoCollectJobStore: { createCollectJobStore: () => failedPromotionJobStore },
+    module: { exports: {} }
+  };
+  failedPromotionContext.globalThis = failedPromotionContext;
+  vm.createContext(failedPromotionContext);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, 'background.js'), 'utf8'), failedPromotionContext);
+  const doneDespiteSessionFailure = await failedPromotionContext.module.exports.collectJobResponse('crash-with-session-failure');
+  assert.equal(JSON.stringify(doneDespiteSessionFailure), JSON.stringify({ ok: true, status: 'done', ...storedResult }));
+  assert.equal(failedPromotionSaveAttempts, 1);
+  assert.equal(jobStoreRemoveCalls, 0, 'задача не удаляется при временной ошибке session');
+  assert.equal(resultStoreRemoveCalls, 0, 'готовый результат не удаляется при временной ошибке session');
 
   console.log('collect-job-store.test.js: ok');
 }

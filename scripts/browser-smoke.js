@@ -61,6 +61,7 @@ function performanceImport(size = 10_000) {
 }
 
 async function openDetails(page, selector) {
+  if (selector === '#budgetCard' || selector === '#refundCard') await openDetails(page, '#analyticsReports');
   const details = page.locator(selector);
   if (!await details.evaluate((node) => node.open)) {
     await details.locator(':scope > summary').click();
@@ -76,6 +77,7 @@ async function main() {
   try {
     context = await chromium.launchPersistentContext(profileDir, {
       channel: 'chromium',
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
       headless: true,
       viewport: { width: 1280, height: 720 },
       args: [
@@ -131,7 +133,7 @@ async function main() {
     const sourcesBox = await page.locator('.sources').boundingBox();
     const startBox = await page.locator('#onboardingStart').boundingBox();
     assert.ok(sourcesBox && startBox && startBox.y > sourcesBox.y, 'главная кнопка должна идти после выбора магазинов');
-    await page.screenshot({ path: path.join(outputDir, 'first-run-desktop.png'), fullPage: true });
+    await page.screenshot({ path: path.join(outputDir, 'first-run-desktop.png'), fullPage: true, animations: 'disabled' });
 
     await page.setViewportSize({ width: 390, height: 844 });
     const onboardingWidth = await page.evaluate(() => ({
@@ -144,7 +146,7 @@ async function main() {
       mobileStartBox && mobileStartBox.y >= 0 && mobileStartBox.y + mobileStartBox.height <= 844,
       `главное действие первого запуска должно помещаться на первом экране: ${JSON.stringify(mobileStartBox)}`
     );
-    await page.screenshot({ path: path.join(outputDir, 'first-run-mobile.png'), fullPage: true });
+    await page.screenshot({ path: path.join(outputDir, 'first-run-mobile.png'), fullPage: true, animations: 'disabled' });
     await page.setViewportSize({ width: 195, height: 844 });
     const zoomedOnboardingWidth = await page.evaluate(() => ({
       viewport: window.innerWidth,
@@ -196,11 +198,11 @@ async function main() {
     assert.equal(await page.locator('#analyticsDetails').isVisible(), false, 'пример не должен показывать необязательные настройки и таблицу');
     assert.equal(await page.locator('.detail-panel').isVisible(), false, 'таблица операций не должна перегружать главный экран');
     assert.equal(await page.locator('#topItems .top-item').count(), 3, 'одинаковые товары в примере не должны дробиться из-за служебной пометки');
-    await page.screenshot({ path: path.join(outputDir, 'example-desktop.png'), fullPage: true });
+    await page.screenshot({ path: path.join(outputDir, 'example-desktop.png'), fullPage: true, animations: 'disabled' });
     await page.locator('#themeToggle').click();
     assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark', 'тёмная тема должна включаться без перезагрузки');
     await page.waitForTimeout(250);
-    await page.screenshot({ path: path.join(outputDir, 'example-dark-desktop.png'), fullPage: true });
+    await page.screenshot({ path: path.join(outputDir, 'example-dark-desktop.png'), fullPage: true, animations: 'disabled' });
     await page.locator('#themeToggle').click();
     assert.equal(await page.locator('html').getAttribute('data-theme'), 'light', 'светлая тема должна восстанавливаться');
     await page.waitForTimeout(250);
@@ -225,7 +227,7 @@ async function main() {
     }
     const mobileChartBox = await page.locator('#periodChart').boundingBox();
     assert.ok(mobileChartBox && mobileChartBox.height >= 180 && mobileChartBox.height <= 230, `график на мобильном должен быть читаемым без пустой высоты: ${JSON.stringify(mobileChartBox)}`);
-    await page.screenshot({ path: path.join(outputDir, 'example-mobile.png'), fullPage: true });
+    await page.screenshot({ path: path.join(outputDir, 'example-mobile.png'), fullPage: true, animations: 'disabled' });
 
     await page.locator('#demoExit').click();
     await page.locator('#onboardingPanel').waitFor({ state: 'visible' });
@@ -247,6 +249,55 @@ async function main() {
     assert.match(macroCategories, /Еда/u);
     assert.match(macroCategories, /Одежда и стиль/u);
     assert.match(macroCategories, /Техника/u);
+    // Receipt investigation must remain a small, reversible task.
+    await page.setViewportSize({width:1280,height:720});
+    const reportPosition = await page.evaluate(() => ({ y: scrollY, text: document.querySelector('.analytics-kpis').textContent }));
+    await page.locator('#topItems .top-item').first().click();
+    await page.locator('#purchaseInspector').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#analyticsDetails').getAttribute('open'), null);
+    assert.equal(await page.locator('#purchaseInspector .receipt-unavailable').count() > 0, true);
+    await page.locator('#purchaseInspector button', {hasText:'Изменить операцию'}).click();
+    await page.locator('#operationEditor').waitFor({state:'visible'});
+    await page.locator('#operationClose').click();
+    await page.locator('#purchaseInspector').waitFor({state:'visible'});
+    assert.equal(await page.evaluate(() => document.activeElement.closest('dialog')?.id), 'purchaseInspector', 'editing returns to receipt context');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#purchaseInspector').isVisible(), false);
+    assert.equal(await page.locator('.analytics-kpis').textContent(), reportPosition.text);
+    await page.evaluate(() => {
+      globalThis.__receiptVisualOriginal = { rows, sourceRows };
+      const fake = Array.from({length:3}, (_,i) => ({ ...rows[0], rowId: `receipt-ux-${i}`, title: `Ozon PDF не разобран: заказ ${i + 1}`, date: `2026-06-${10+i}`,
+        source:'ozon', amount:'181.99', marketplace_id:`test-receipt-${i}`, parse_quality:'fallback', receipt_url:i === 2 ? 'javascript:alert(1)' : `https://www.ozon.ru/api/composer-api.bx/_action/downloadCheque?id=synthetic-${i}` }));
+      rows = [...rows, ...fake]; sourceRows = [...sourceRows, ...fake]; updateAnalytics();
+    });
+    assert.equal(await page.locator('#topItems').textContent().then(t => t.includes('PDF не разобран')), false);
+    assert.match(await page.locator('#unreadReceipts').textContent(), /Чеки без списка товаров: 3/u);
+    const withFallbackTotals = await page.locator('.analytics-kpis').textContent();
+    assert.notEqual(withFallbackTotals, reportPosition.text, 'fallback sums remain in spending');
+    await page.locator('#unreadReceipts button').click();
+    assert.equal(await page.locator('#purchaseInspector .inspector-entry').count(), 3, 'equal amounts must not be silently merged');
+    assert.equal(await page.locator('#purchaseInspector .inspector-explanation').count(), 1, 'one explanation for the group');
+    assert.equal(await page.locator('#purchaseInspector .receipt-link').count(), 2, 'unsafe URL must not be linkable');
+    assert.equal(await page.locator('#purchaseInspector .receipt-link').first().getAttribute('target'), '_blank');
+    assert.equal(await page.locator('#purchaseInspector .receipt-link').first().getAttribute('rel'), 'noopener noreferrer');
+    await page.screenshot({path:path.join(outputDir, 'receipt-inspector-light.png'), animations:'disabled'});
+    await page.setViewportSize({width:390,height:844});
+    assert.ok(withinViewport(await page.locator('#purchaseInspector').boundingBox(), {width:390}));
+    await page.screenshot({path:path.join(outputDir, 'receipt-inspector-mobile.png'), animations:'disabled'});
+    await page.locator('#purchaseInspectorClose').click();
+    assert.equal(await page.locator('.analytics-kpis').textContent(), withFallbackTotals);
+    await page.evaluate(() => { rows = globalThis.__receiptVisualOriginal.rows; sourceRows = globalThis.__receiptVisualOriginal.sourceRows; delete globalThis.__receiptVisualOriginal; updateAnalytics(); });
+    await page.setViewportSize({width:1280,height:720});
+    await page.evaluate(() => scrollDetailsIntoView());
+    await page.locator('#operationsDialog').waitFor({state:'visible'});
+    assert.equal(await page.locator('#analyticsDetails').getAttribute('open'), null, 'drilldown does not expand unrelated reports');
+    assert.equal(await page.locator('#operationsDialog .detail-panel').count(), 1);
+    await page.screenshot({path:path.join(outputDir, 'operations-focused.png'), animations:'disabled'});
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelector('#analyticsDetails .detail-panel'));
+    assert.equal(await page.locator('#analyticsDetails .detail-panel').count(), 1, 'table returns to its original location');
+    assert.equal(await page.locator('#operationsDialog .detail-panel').count(), 0);
+    assert.equal(await page.locator('.analytics-kpis').textContent(), reportPosition.text);
     await page.locator('#categoryLevel').selectOption('detail');
     const detailedCategories = await page.locator('#categoryBreakdown').textContent();
     assert.match(detailedCategories, /Продукты/u);
@@ -288,11 +339,11 @@ async function main() {
     assert.match(await page.locator('#categoryReviewSummary').textContent(), /Остальное можно не разбирать/u);
     assert.doesNotMatch(await page.locator('#categoryQualityKpis').textContent(), /1000/u, 'раздел не должен предлагать разметить всю историю');
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.screenshot({ path: path.join(outputDir, 'categories-optional-desktop.png'), fullPage: true });
+    await page.screenshot({ path: path.join(outputDir, 'categories-optional-desktop.png'), fullPage: true, animations: 'disabled' });
     await page.setViewportSize({ width: 390, height: 844 });
     const categoryPageWidth = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
     assert.ok(categoryPageWidth.document <= categoryPageWidth.viewport, `категории переполнены: ${JSON.stringify(categoryPageWidth)}`);
-    await page.screenshot({ path: path.join(outputDir, 'categories-optional-mobile.png'), fullPage: true });
+    await page.screenshot({ path: path.join(outputDir, 'categories-optional-mobile.png'), fullPage: true, animations: 'disabled' });
     await page.setViewportSize({ width: 1280, height: 720 });
     assert.doesNotMatch(await page.locator('#homeGuide').textContent(), /Проверить\s+\d+\s+покуп/u, 'категории не должны становиться главным заданием');
     await page.reload();
@@ -338,6 +389,7 @@ async function main() {
     await openDetails(page, '#analyticsDetails');
     await page.getByRole('button', { name: /Изменить операцию Кофе зерновой/u }).click();
     await page.locator('#operationEditor').waitFor({ state: 'visible' });
+    await page.screenshot({ path: path.join(outputDir, 'operation-editor.png'), fullPage: false, animations: 'disabled' });
     await page.locator('#markWarranty').check();
     await page.locator('#operationWarrantyUntil').fill('2027-06-01');
     await page.locator('#operationDocumentUrl').fill('https://example.test/warranty');
@@ -377,6 +429,7 @@ async function main() {
     assert.match(await page.locator('#operationOverridesSummary').textContent(), /2\s+правки/u);
 
     await openDetails(page, '#dataView details:has(#historyTitle)');
+    assert.equal(await page.locator('#dataView details:has(#overridesTitle)').getAttribute('open'), null, 'settings show one section at a time');
     await page.waitForFunction(() => [...document.querySelectorAll('#dataHistoryList .data-list-item')]
       .some((item) => item.textContent?.includes('Добавлен профиль')));
     const profileSnapshot = page.locator('#dataHistoryList .data-list-item').filter({ hasText: 'Добавлен профиль' }).first();
@@ -400,6 +453,7 @@ async function main() {
         return originalPut.apply(this, args);
       };
     });
+    await openDetails(page, '#dataView details:has(#profilesTitle)');
     await page.locator('#dataProfileName').fill('Несохранённый');
     await page.locator('#addDataProfile').click();
     await page.waitForFunction(() => document.querySelector('#statusText')?.textContent?.includes('Не удалось сохранить'));
@@ -414,12 +468,12 @@ async function main() {
     await openDetails(page, '#analyticsDetails');
     await page.locator('.detail-panel').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#analyticsDetails').getAttribute('open'), '', 'нижние данные должны раскрываться одним понятным блоком');
-    await page.screenshot({ path: path.join(outputDir, 'analytics-more-desktop.png'), fullPage: true });
+    await page.screenshot({ path: path.join(outputDir, 'analytics-more-desktop.png'), fullPage: true, animations: 'disabled' });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForFunction(() => document.querySelector('#periodChart')?.getAttribute('viewBox') === '0 0 420 260');
     const expandedPageWidth = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
     assert.ok(expandedPageWidth.document <= expandedPageWidth.viewport, `раскрытый отчёт переполнен: ${JSON.stringify(expandedPageWidth)}`);
-    await page.screenshot({ path: path.join(outputDir, 'analytics-more-mobile.png'), fullPage: true });
+    await page.screenshot({ path: path.join(outputDir, 'analytics-more-mobile.png'), fullPage: true, animations: 'disabled' });
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.getByRole('button', { name: /Изменить операцию Кофе зерновой/u }).click();
     await page.locator('#operationEditor').waitFor({ state: 'visible' });
@@ -450,6 +504,34 @@ async function main() {
     await page.waitForFunction(() => document.querySelector('#statusText')?.textContent?.includes('прерван перезапуском'));
     assert.match(await page.locator('#downloadCsv').textContent(), /\(3\)/u, 'прерванный сбор не должен заменять сохранённые данные');
 
+    // Exercise the real merge/save path without marketplace sessions or network.
+    await page.evaluate(() => {
+      const original = chrome.runtime.sendMessage;
+      chrome.runtime.sendMessage = (message, callback) => {
+        if (message.type === 'SPEND_COLLECT_STATUS' && message.jobId === 'smoke-mixed') {
+          callback({ ok: true, status: 'done', sources: ['ozon'], warnings: [],
+            rows: [{ date: '2026-06-01', source: 'ozon', title: 'Кофе зерновой', amount: '490.00', currency: 'RUB',
+              category: 'Продукты', type: 'purchase', marketplace_id: 'smoke-1', item_index: '1', profile: 'personal' }],
+            stats: { ozon: { receipts: 1, parsedReceipts: 1, itemRows: 1 } } });
+          return;
+        }
+        if (message.type === 'SPEND_COLLECT_ACK' && message.jobId === 'smoke-mixed') {
+          callback({ ok: true });
+          return;
+        }
+        return original.call(chrome.runtime, message, callback);
+      };
+      globalThis.__restoreMixedMessaging = () => { chrome.runtime.sendMessage = original; };
+      localStorage.setItem('kupleno-active-collect-job-v1', 'smoke-mixed');
+    });
+    await page.locator('#collect').click();
+    await page.waitForFunction(() => !document.querySelector('#collect').disabled
+      && document.querySelector('#reportTrustTitle').textContent.includes('В отчёте есть CSV'));
+    await page.evaluate(() => globalThis.__restoreMixedMessaging());
+    assert.match(await page.locator('#downloadCsv').textContent(), /\(3\)/u);
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('#reportTrustTitle').textContent.includes('В отчёте есть CSV'));
+
     await page.locator('[data-view="data"]').click();
     const backupDownloadPromise = page.waitForEvent('download');
     await page.locator('#exportDataBackup').click();
@@ -457,6 +539,7 @@ async function main() {
     const backupPath = path.join(profileDir, 'smoke-backup.json');
     await backupDownload.saveAs(backupPath);
     assert.ok(fs.statSync(backupPath).size > 100, 'резервная копия не должна быть пустой');
+    assert.equal(JSON.parse(fs.readFileSync(backupPath, 'utf8')).metadata.hasUnverifiedCsv, true);
 
     page.once('dialog', (dialog) => dialog.accept());
     await page.locator('#deleteAllData').click();
@@ -472,6 +555,9 @@ async function main() {
     await page.locator('#onboardingPanel').waitFor({ state: 'hidden' });
     assert.equal(await page.locator('#onboardingPanel').isVisible(), false, 'восстановление должно возвращать пользователя к отчёту');
     assert.match(await page.locator('#downloadCsv').textContent(), /\(3\)/u);
+
+    assert.match(await page.locator('#reportTrustTitle').textContent(), /В отчёте есть CSV/u,
+      'предупреждение смешанного отчёта сохраняется после backup, очистки и восстановления');
 
     await page.locator('[data-view="analytics"]').click();
     const accessibility = await page.evaluate(() => {
@@ -529,6 +615,22 @@ async function main() {
     await page.keyboard.press('Home');
     assert.equal(await page.locator('[data-view="analytics"]').getAttribute('aria-selected'), 'true');
 
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.locator('[data-view="analytics"]').focus();
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.locator('[data-view="categories"]').getAttribute('aria-selected'), 'true');
+    assert.equal(await page.locator('[role="tablist"]').getAttribute('aria-orientation'), 'vertical');
+    for (const view of ['analytics', 'categories', 'control', 'data']) {
+      await page.locator(`[data-view="${view}"]`).click();
+      const navBox = await page.locator('.view-tabs').boundingBox();
+      const panelBox = await page.locator('.view-panel.active').boundingBox();
+      assert.ok(navBox && panelBox && navBox.x + navBox.width <= panelBox.x,
+        `${view}: desktop navigation must not cover the content`);
+      await page.screenshot({ path: path.join(outputDir, `${view}-desktop.png`), fullPage: true, animations: 'disabled' });
+    }
+    await page.locator('#themeToggle').click();
+    await page.screenshot({ path: path.join(outputDir, 'settings-dark-desktop.png'), fullPage: true, animations: 'disabled' });
+    await page.locator('#themeToggle').click();
     await page.setViewportSize({ width: 390, height: 844 });
     for (const [view, panel] of [
       ['analytics', '#analyticsView'],
@@ -541,7 +643,7 @@ async function main() {
       assert.ok(width.document <= width.viewport, `${view}: горизонтальное переполнение ${JSON.stringify(width)}`);
       const box = await page.locator(panel).boundingBox();
       assert.ok(box && box.x >= -1 && box.x + box.width <= 391, `${panel} выходит за ширину экрана: ${JSON.stringify(box)}`);
-      await page.screenshot({ path: path.join(outputDir, `${view}-mobile.png`), fullPage: true });
+      await page.screenshot({ path: path.join(outputDir, `${view}-mobile.png`), fullPage: true, animations: 'disabled' });
     }
     await page.locator('[data-view="analytics"]').click();
 
@@ -584,6 +686,185 @@ async function main() {
     assert.ok(importMs < 20_000, `импорт 10 000 строк слишком медленный: ${importMs} мс`);
     assert.ok(reloadMs < 20_000, `восстановление 10 003 строк слишком медленное: ${reloadMs} мс`);
     fs.writeFileSync(path.join(root, 'dist', 'performance-browser.json'), `${JSON.stringify({ rows: 10_003, importMs, reloadMs }, null, 2)}\n`);
+
+    await page.locator('#uploadCsvInput').setInputFiles(csvFile([
+      { date: '2026-06-01', marketplace: 'ozon', title: 'USD', amount: '100', currency: 'USD', type: 'purchase' }
+    ]));
+    await page.waitForFunction(() => document.querySelector('#statusText').textContent.includes('USD'));
+    assert.match(await page.locator('#downloadCsv').textContent(), /\(10003\)/u, 'отказ валюты не меняет базу');
+    await page.locator('#importDataBackupInput').setInputFiles({ name: 'broken.json', mimeType: 'application/json', buffer: Buffer.from('{broken') });
+    await page.waitForFunction(() => !document.querySelector('#uploadCsv').disabled);
+    assert.match(await page.locator('#downloadCsv').textContent(), /\(10003\)/u, 'повреждённая копия не меняет базу');
+
+    await page.locator('[data-view="data"]').click();
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.locator('#deleteAllData').click();
+    await page.locator('#onboardingPanel').waitFor({ state: 'visible' });
+    // Dense synthetic purchase history, with long names and badge boundary states.
+    const visualProducts = [
+      ['Робот-пылесос с базой самоочистки и влажной уборкой', 'Бытовая техника', 32271],
+      ['Беспроводные наушники с активным шумоподавлением', 'Электроника', 18349],
+      ['Кофе зерновой, Бразилия, средняя обжарка, 1 кг', 'Продукты', 1490],
+      ['Кроссовки для бега по городу и парку', 'Обувь', 6290],
+      ['Настольная лампа с регулируемым светом', 'Дом', 2790],
+      ['Автомобильный компрессор с цифровым манометром', 'Авто', 3400],
+      ['Книга «Искусство замечать» в твёрдом переплёте', 'Книги', 890],
+      ['Гантели разборные, комплект для домашних тренировок', 'Спорт', 4190]
+    ];
+    const visualRows = Array.from({ length: 960 }, (_, i) => {
+      const [title, category, price] = visualProducts[i % visualProducts.length];
+      return { date: `${2024 + Math.floor(i / 360)}-${String(i % 12 + 1).padStart(2, '0')}-${String(i % 27 + 1).padStart(2, '0')}`,
+        marketplace: ['ozon', 'wildberries', 'yandex'][i % 3], title: `${title}${i % 8 === 0 ? ' — расширенная комплектация, русская версия' : ''}`,
+        category, amount: String(i % 31 === 0 ? -price : price), type: i % 31 === 0 ? 'refund' : 'purchase', currency: 'RUB',
+        marketplace_id: `visual-${i}`, item_index: '1', profile: 'personal' };
+    });
+    await page.locator('#uploadCsvInput').setInputFiles(csvFile(visualRows, 'synthetic-design.csv'));
+    await page.waitForFunction(() => document.querySelector('#downloadCsv').textContent.includes('(960)') && !document.querySelector('#uploadCsv').disabled);
+    await page.evaluate(() => { const badge = document.querySelector('#controlBadge'); badge.hidden = false; badge.textContent = '18'; });
+    const designEvidence = [];
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.locator('[data-view="analytics"]').click();
+      for (const theme of ['light', 'dark']) {
+        if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('#themeToggle').click();
+        await page.evaluate(() => document.fonts.ready);
+        const toggle = page.locator('#analyticsFilterToggle');
+        await toggle.scrollIntoViewIfNeeded();
+        const before = await toggle.boundingBox();
+        const kpiBefore = await page.locator('.analytics-kpis').boundingBox();
+        await toggle.click();
+        await page.locator('#analyticsFilterPanel').waitFor({ state: 'visible' });
+        const after = await toggle.boundingBox();
+        const kpiAfter = await page.locator('.analytics-kpis').boundingBox();
+        for (const prop of ['x', 'y', 'width', 'height']) {
+          assert.ok(Math.abs(before[prop] - after[prop]) < 1, `filter trigger moves ${prop}: ${width}/${theme}`);
+          assert.ok(Math.abs(kpiBefore[prop] - kpiAfter[prop]) < 1, `report moves ${prop}: ${width}/${theme}`);
+        }
+        assert.ok(withinViewport(await page.locator('#analyticsFilterPanel').boundingBox(), { width }), 'filter must fit viewport');
+        await page.screenshot({ path: path.join(outputDir, `journal-filters-${theme}-${width}.png`), animations: 'disabled' });
+        await page.locator('#activeProfileSelect').focus();
+        await page.keyboard.press('Escape');
+        assert.equal(await page.locator('.analytics-filter-details').getAttribute('open'), null);
+        assert.equal(await page.evaluate(() => document.activeElement.id), 'analyticsFilterToggle');
+        assert.equal(await page.locator('#analyticsFilterPanel').getAttribute('inert'), '');
+        await toggle.click();
+        await page.locator('.analytics-titlebar > h2').click();
+        assert.equal(await page.locator('.analytics-filter-details').getAttribute('open'), null, 'outside click closes filters');
+        const measurements = await page.evaluate(() => {
+          const luminance = (rgb) => rgb.slice(0, 3).map(c => c / 255).map(c => c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4).reduce((a, c, i) => a + c * [.2126, .7152, .0722][i], 0);
+          const rgb = value => value.match(/[\d.]+/g).map(Number);
+          const badge = document.querySelector('#controlBadge');
+          const style = getComputedStyle(badge);
+          const levels = [luminance(rgb(style.color)), luminance(rgb(style.backgroundColor))].sort((a,b) => b-a);
+          const button = document.querySelector('#themeToggle').getBoundingClientRect();
+          const icon = [...document.querySelectorAll('#themeToggle svg')].find(n => getComputedStyle(n).display !== 'none').getBoundingClientRect();
+          const background = rgb(getComputedStyle(document.body).backgroundColor);
+          return { contrast: (levels[0] + .05) / (levels[1] + .05), iconOffset: [Math.abs(button.x + button.width / 2 - icon.x - icon.width / 2), Math.abs(button.y + button.height / 2 - icon.y - icon.height / 2)], background,
+            overflow: document.documentElement.scrollWidth > innerWidth, font: document.fonts.check('14px "Golos Text"') };
+        });
+        assert.ok(measurements.contrast >= 4.5, `badge contrast ${JSON.stringify(measurements)}`);
+        assert.ok(measurements.iconOffset.every(value => value < 1), 'theme icon must be centered');
+        assert.equal(measurements.overflow, false);
+        assert.equal(measurements.font, true, JSON.stringify(await page.evaluate(() => ({ fonts: [...document.fonts].map(f=>({family:f.family,status:f.status,weight:f.weight})), body: getComputedStyle(document.body).fontFamily }))) + JSON.stringify(browserErrors));
+        if (theme === 'dark') assert.equal(new Set(measurements.background.slice(0,3)).size, 1, 'dark surface must be neutral');
+        await page.locator('[data-view="categories"]').click();
+        if (!await page.locator('#categoriesView .source-badge:visible').count()) await page.locator('#reviewAllCategories').click();
+        const marks = await page.locator('#categoriesView .source-badge').evaluateAll(nodes => nodes.filter(n=>n.getClientRects().length).map(n=>({source:n.className,color:getComputedStyle(n).color, width:n.getBoundingClientRect().width,height:n.getBoundingClientRect().height,lineHeight:getComputedStyle(n).lineHeight})).slice(0,10));
+        assert.ok(marks.length > 0, 'test must contain visible category marketplace marks');
+        for (const mark of marks) {
+          assert.equal(mark.color, mark.source.includes('yandex') ? 'rgb(23, 23, 23)' : 'rgb(255, 255, 255)', 'nested marketplace mark retains its own foreground');
+          assert.equal(mark.width, mark.height, 'marketplace mark remains square');
+        }
+        await page.locator('[data-view="analytics"]').click();
+        designEvidence.push({ width, theme, ...measurements, marketplaceMarks:marks });
+        for (const view of ['analytics', 'categories', 'control', 'data']) {
+          await page.locator(`[data-view="${view}"]`).click();
+          await page.screenshot({ path: path.join(outputDir, `journal-${view}-${theme}-${width}.png`), fullPage: true, animations: 'disabled' });
+        }
+        await page.locator('[data-view="analytics"]').click();
+      }
+    }
+    fs.writeFileSync(path.join(outputDir, 'design-checks.json'), JSON.stringify(designEvidence, null, 2));
+    await page.locator('[data-view="data"]').click();
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.locator('#deleteAllData').click();
+    await page.locator('#onboardingPanel').waitFor({ state: 'visible' });
+    if (await page.locator('html').getAttribute('data-theme') !== 'light') await page.locator('#themeToggle').click();
+    const partialRows = [
+      { date: '2026-06-01', amount: '100', type: 'purchase', marketplace_id: 'partial-buy', profile: 'work' },
+      { date: '2026-06-02', amount: '-40', type: 'refund', marketplace_id: 'partial-40', profile: 'work' },
+      { date: '2026-06-03', amount: '-60', type: 'refund', marketplace_id: 'partial-60', profile: 'work' },
+      { date: '2026-06-04', amount: '-40', type: 'refund', marketplace_id: 'foreign-40', profile: 'personal' }
+    ].map((row) => ({ ...row, marketplace: 'ozon', title: 'Тест частичного возврата', currency: ' rub ', item_index: '1', category: 'Дом' }));
+    await page.locator('#uploadCsvInput').setInputFiles(csvFile(partialRows));
+    await page.waitForFunction(() => document.querySelector('#downloadCsv').textContent.includes('(4)')
+      && !document.querySelector('#uploadCsv').disabled);
+    assert.equal(await page.locator('#activeProfileSelect option[value="work"]').count(), 1);
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('#downloadCsv').textContent.includes('(4)'));
+    await page.evaluate(() => openOperationEditor(sourceRows.find((row) => row.marketplace_id === 'partial-buy').rowId));
+    assert.equal(await page.locator('#operationProfileSelect').inputValue(), 'work');
+    await page.locator('#markRefundClaim').check();
+    await page.locator('#operationSave').click();
+    await page.locator('[data-view="control"]').click();
+    await openDetails(page, '#controlView details:has(#refundCenterList)');
+    const candidates = page.getByRole('combobox', { name: 'Возврат для Тест частичного возврата' });
+    assert.equal(await candidates.locator('option').count(), 2, 'чужой профиль не предлагается в возвраты');
+    const firstRefund = await candidates.locator('option').evaluateAll((options) => options.find((option) => option.textContent.includes('40')).value);
+    await candidates.selectOption(firstRefund);
+    await page.getByRole('button', { name: 'Это возврат', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('#refundCenterList').textContent.includes('получено 40'));
+    assert.equal(await candidates.locator('option').count(), 1);
+    await page.setViewportSize({ width: 195, height: 844 });
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    const refundWidth = await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth, inside: [...document.querySelectorAll("body *")].filter(n=>n.getClientRects().length && n.scrollWidth > n.clientWidth + 2).map(n=>({tag:n.tagName,id:n.id,cls:n.className,scroll:n.scrollWidth,client:n.clientWidth})).slice(-20),
+      overflow: [...document.querySelectorAll('body *')].filter((node) => node.getClientRects().length && node.getBoundingClientRect().right > innerWidth + 1)
+        .map((node) => ({ tag: node.tagName, id: node.id, class: node.className, right: node.getBoundingClientRect().right })).slice(-8) }));
+    await page.screenshot({ path: path.join(outputDir, 'partial-refund-mobile.png'), fullPage: true, animations: 'disabled' });
+    assert.ok(refundWidth.document <= refundWidth.viewport, `выбор возврата переполнен: ${JSON.stringify(refundWidth)}`);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.getByRole('button', { name: 'Это возврат', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('#refundCenterList').textContent.includes('Получено полностью'));
+    await page.waitForFunction(() => !document.querySelector('#operationSave').disabled);
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('#downloadCsv').textContent.includes('(4)'));
+    await page.locator('[data-view="control"]').click();
+    await page.waitForFunction(() => document.querySelector('#refundCenterList').textContent.includes('Получено полностью'));
+
+    await page.evaluate(async () => {
+      const snapshot = await featureStorage.load();
+      snapshot.rows[0].currency = 'USD';
+      globalThis.__unsupportedBackup = featureStorage.serializeBackup({ rows: snapshot.rows, settings: snapshot.settings, metadata: snapshot.metadata });
+    });
+    // A foreign-currency backup must fail before replacing the current report.
+    const invalidCurrencyBackup = await page.evaluate(() => globalThis.__unsupportedBackup);
+    await page.locator('#importDataBackupInput').setInputFiles({ name: 'usd-backup.json', mimeType: 'application/json', buffer: Buffer.from(invalidCurrencyBackup) });
+    await page.waitForFunction(() => document.querySelector('#statusText').textContent.includes('USD'));
+    assert.match(await page.locator('#downloadCsv').textContent(), /\(4\)/u);
+    // Simulate an old installation that already persisted a USD row.
+    await page.evaluate(async () => {
+      const snapshot = await featureStorage.load();
+      snapshot.rows[0].currency = 'USD';
+      await featureStorage.save({ rows: snapshot.rows, settings: snapshot.settings, metadata: snapshot.metadata },
+        { expectedEpoch: dataEpoch, expectedRevision: dataRevision });
+    });
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('#statusText').textContent.includes('USD'));
+    assert.equal(await page.locator('#analyticsTotal').textContent(), '—');
+    assert.equal(await page.locator('#collect').isDisabled(), true);
+    const rawDownloadPromise = page.waitForEvent('download');
+    await page.locator('#analyticsEmptyActions button:visible').click();
+    const rawDownload = await rawDownloadPromise;
+    const rawPath = path.join(profileDir, 'raw-unsupported.json');
+    await rawDownload.saveAs(rawPath);
+    const rawBackup = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+    assert.equal(rawBackup.rows.length, 4);
+    assert.equal(rawBackup.rows[0].currency, 'USD');
+    assert.equal(rawBackup.rows[0].profile, 'work');
+    assert.ok(rawBackup.settings.refundClaims[0].manualMatchRowIds.length === 2);
+    fs.writeFileSync(path.join(root, 'dist', 'browser-environment.json'), `${JSON.stringify({ node: process.version,
+      userAgent: await page.evaluate(() => navigator.userAgent), executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || 'playwright chromium',
+      extensionDir }, null, 2)}\n`);
 
     assert.deepEqual(browserErrors, []);
     assert.deepEqual(

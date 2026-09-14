@@ -16,6 +16,13 @@ const csvColumns = [
 ];
 
 const els = {
+  purchaseInspector: document.getElementById("purchaseInspector"),
+  purchaseInspectorTitle: document.getElementById("purchaseInspectorTitle"),
+  purchaseInspectorSummary: document.getElementById("purchaseInspectorSummary"),
+  purchaseInspectorList: document.getElementById("purchaseInspectorList"),
+  purchaseInspectorClose: document.getElementById("purchaseInspectorClose"),
+  unreadReceipts: document.getElementById("unreadReceipts"),
+  operationReceipt: document.getElementById("operationReceipt"),
   skipLink: document.getElementById('skipLink'),
   onboardingPanel: document.getElementById('onboardingPanel'),
   onboardingDemo: document.getElementById('onboardingDemo'),
@@ -56,6 +63,9 @@ const els = {
   progress: document.getElementById('progress'),
   sourceStatuses: document.getElementById('sourceStatuses'),
   collectHint: document.getElementById('collectHint'),
+  analyticsFilterDetails: document.querySelector('.analytics-filter-details'),
+  analyticsFilterToggle: document.getElementById('analyticsFilterToggle'),
+  analyticsFilterPanel: document.getElementById('analyticsFilterPanel'),
   periodGroup: document.getElementById('periodGroup'),
   dateFrom: document.getElementById('dateFrom'),
   dateTo: document.getElementById('dateTo'),
@@ -234,6 +244,7 @@ const defaultCollectOptions = {
 };
 const knownReceiptLimit = 3000;
 const maxCsvImportBytes = 20 * 1024 * 1024;
+const maxProfiles = 100;
 const maxRenderedDetailRows = 500;
 
 // Совместимость с версиями до переименования: эти ключи нельзя менять без миграции данных.
@@ -372,6 +383,9 @@ let lastRunAt = null;
 let lastRunKind = '';
 let lastWarningCount = 0;
 let lastCollectionReport = { sources: [], stats: {}, warnings: [] };
+let hasUnverifiedCsv = false;
+let unsupportedCurrencyCodes = [];
+let unsupportedCurrencyBackupButton = null;
 let detailShownCount = 60;
 let categoryReviewShownCount = 5;
 let categoryReviewShowAll = false;
@@ -698,6 +712,24 @@ function normalizeSettings(value) {
   };
 }
 
+function settingsForImportedProfiles(importedRows, settings = appSettings) {
+  const profiles = settings.profiles.map((profile) => ({ ...profile }));
+  const profileIds = new Set(profiles.map((profile) => profile.id));
+  for (const row of importedRows) {
+    const profileId = String(row?.profile || '').trim();
+    if (!profileId || profileIds.has(profileId)) continue;
+    if (profileId !== slugId(profileId)) {
+      throw new Error(`некорректный ID профиля в CSV: ${profileId}`);
+    }
+    if (profiles.length >= maxProfiles) {
+      throw new Error(`в CSV больше ${maxProfiles} профилей`);
+    }
+    profiles.push({ id: profileId, name: profileId });
+    profileIds.add(profileId);
+  }
+  return normalizeSettings({ ...settings, profiles });
+}
+
 function callChrome(fn, ...args) {
   return new Promise((resolve, reject) => {
     if (typeof fn !== 'function') {
@@ -962,12 +994,60 @@ function snapshotMetadata(reason = '') {
     lastRunKind: String(lastRunKind || ''),
     warningCount: Number(lastWarningCount) || 0,
     hasCollected: Boolean(hasCollected),
+    hasUnverifiedCsv,
     collection: JSON.parse(JSON.stringify(lastCollectionReport))
   };
 }
 
+function unsupportedCurrencies(records) {
+  return [...new Set((Array.isArray(records) ? records : [])
+    .map((row) => String(row?.currency || '').trim().toUpperCase() || 'RUB')
+    .filter((currency) => currency !== 'RUB'))];
+}
+
+function unsupportedCurrencyError(records, source = 'данных') {
+  const currencies = unsupportedCurrencies(records);
+  if (!currencies.length) return '';
+  return `Неподдерживаемая валюта ${currencies.join(', ')} в ${source}. Аналитика и изменения заблокированы, чтобы не принять эти суммы за рубли. Скачайте резервную копию исходных данных.`;
+}
+
+function assertSupportedCurrencies(records, source) {
+  const message = unsupportedCurrencyError(records, source);
+  if (message) throw new Error(message);
+}
+
+function renderUnsupportedCurrencyState(message) {
+  rows = [];
+  document.body.classList.remove('has-data', 'has-visible-data');
+  els.analyticsTotal.textContent = '—';
+  els.analyticsAverage.textContent = '—';
+  els.analyticsPurchases.textContent = '—';
+  els.analyticsRefunds.textContent = '—';
+  els.analyticsTotalCompare.textContent = '';
+  els.chartRange.textContent = '';
+  els.analyticsEmptyText.textContent = message;
+  els.analyticsEmptyActions.hidden = false;
+  els.emptyCollect.hidden = true;
+  els.emptyUploadCsv.hidden = true;
+  els.emptyReset.hidden = true;
+  if (!unsupportedCurrencyBackupButton) {
+    unsupportedCurrencyBackupButton = smallButton('Скачать резервную копию', exportBackup, 'primary');
+    els.analyticsEmptyActions.appendChild(unsupportedCurrencyBackupButton);
+  }
+  els.reportTrust.hidden = true;
+  els.controlBadge.hidden = true;
+  updateCsvButton();
+  setMutationControlsDisabled(true);
+}
+
 function persistSnapshot(reason = '') {
   if (!featureStorage || demoMode) return Promise.resolve(null);
+  if (unsupportedCurrencyCodes.length) {
+    const message = unsupportedCurrencyError(sourceRows, 'локальной базе');
+    showWarnings([message]);
+    setStatus(message);
+    return Promise.resolve(null);
+  }
   if (storageConflict) {
     markStorageConflict();
     return Promise.resolve(null);
@@ -1057,6 +1137,8 @@ function restoreCapturedState(state) {
     lastRunAt = metadata.lastRunAt ? new Date(metadata.lastRunAt) : null;
     lastRunKind = metadata.lastRunKind || '';
     lastCollectionReport = normalizeCollectionReport(metadata.collection);
+    hasUnverifiedCsv = metadata.hasUnverifiedCsv === true
+      || (metadata.hasUnverifiedCsv === undefined && reportQuality.auditCollection(state.rows || [], lastCollectionReport).state === 'imported');
     lastWarningCount = warningCountAfterNormalization(metadata.warningCount, metadata.collection, lastCollectionReport);
     demoMode = Boolean(state.demoMode);
     runDetailsOpen = Boolean(state.runDetailsOpen);
@@ -1080,8 +1162,19 @@ function restoreSnapshot(snapshot, statusPrefix = 'Открыт сохранён
     if (!Number.isFinite(lastRunAt.getTime())) lastRunAt = new Date();
     lastRunKind = metadata.lastRunKind || 'Последний отчёт';
     lastCollectionReport = normalizeCollectionReport(metadata.collection);
+    hasUnverifiedCsv = metadata.hasUnverifiedCsv === true
+      || (metadata.hasUnverifiedCsv === undefined && reportQuality.auditCollection(snapshot.rows || [], lastCollectionReport).state === 'imported');
     lastWarningCount = warningCountAfterNormalization(metadata.warningCount, metadata.collection, lastCollectionReport);
     runDetailsOpen = false;
+    unsupportedCurrencyCodes = unsupportedCurrencies(snapshot.rows);
+    if (unsupportedCurrencyCodes.length) {
+      sourceRows = snapshot.rows;
+      const message = unsupportedCurrencyError(sourceRows, 'локальной базе');
+      renderUnsupportedCurrencyState(message);
+      showWarnings([message]);
+      setStatus(message);
+      return true;
+    }
     updateResult(snapshot.rows || [], {});
     renderQualitySummary(rows, lastCollectionReport.stats, {}, lastCollectionReport.warnings);
     showWarnings(lastCollectionReport.warnings);
@@ -1099,6 +1192,7 @@ function restoreLastRun() {
     try {
       const saved = JSON.parse(localStorage.getItem(lastRunStorageKey) || 'null');
       if (!saved?.rows?.length) return false;
+      hasUnverifiedCsv = true;
       hasCollected = true;
       lastRunAt = saved.at ? new Date(saved.at) : new Date();
       lastRunKind = saved.kind || 'Последний отчёт';
@@ -1118,6 +1212,8 @@ function restoreLastRun() {
 }
 
 function resetLocalDataAfterClear(epoch, remote = false) {
+  hasUnverifiedCsv = false;
+  unsupportedCurrencyCodes = [];
   const nextEpoch = Number(epoch);
   if (Number.isSafeInteger(nextEpoch) && nextEpoch >= dataEpoch) dataEpoch = nextEpoch;
   storageConflict = false;
@@ -1196,7 +1292,13 @@ function applyTheme(theme, persist = true) {
   updateAnalytics();
 }
 
+function updateNavigationLayout() {
+  document.querySelector('[role="tablist"]')?.setAttribute('aria-orientation',
+    window.innerWidth >= 1200 ? 'vertical' : 'horizontal');
+}
+
 function setActiveView(view) {
+  updateNavigationLayout();
   if (demoMode && view !== 'analytics') view = 'analytics';
   const hasMatchingTab = els.tabButtons.some((button) => button.dataset.view === view);
   for (const button of els.tabButtons) {
@@ -1426,7 +1528,7 @@ function selectedCollectSources() {
 }
 
 function setMutationControlsDisabled(disabled) {
-  const effectiveDisabled = Boolean(disabled || storageConflict || persistencePendingCount > 0);
+  const effectiveDisabled = Boolean(disabled || storageConflict || unsupportedCurrencyCodes.length || persistencePendingCount > 0);
   const controls = [
     els.overallBudgetAmount,
     els.saveOverallBudget,
@@ -1483,6 +1585,10 @@ function setMutationControlsDisabled(disabled) {
 }
 
 function beginDatabaseMutation(message = 'Дождитесь завершения текущей операции.') {
+  if (unsupportedCurrencyCodes.length) {
+    setStatus(unsupportedCurrencyError(sourceRows, 'локальной базе'));
+    return false;
+  }
   if (collectionInProgress || databaseMutationInProgress) {
     setStatus(message);
     return false;
@@ -1499,8 +1605,8 @@ function endDatabaseMutation(generation = databaseMutationGeneration) {
   if (generation !== databaseMutationGeneration) return;
   databaseMutationInProgress = false;
   if (collectionInProgress) return;
-  els.collect.disabled = false;
-  els.uploadCsv.disabled = false;
+  els.collect.disabled = unsupportedCurrencyCodes.length > 0;
+  els.uploadCsv.disabled = unsupportedCurrencyCodes.length > 0;
   setMutationControlsDisabled(false);
 }
 
@@ -2196,6 +2302,20 @@ function resetAnalyticsFilters() {
   updateAnalytics();
 }
 
+function syncAnalyticsFilterDisclosure() {
+  const open = Boolean(els.analyticsFilterDetails?.open);
+  els.analyticsFilterToggle?.setAttribute('aria-expanded', String(open));
+  els.analyticsFilterPanel?.toggleAttribute('inert', !open);
+  els.analyticsFilterPanel?.setAttribute('aria-hidden', String(!open));
+}
+
+function closeAnalyticsFilterDisclosure({ restoreFocus = false } = {}) {
+  if (!els.analyticsFilterDetails?.open) return;
+  els.analyticsFilterDetails.open = false;
+  syncAnalyticsFilterDisclosure();
+  if (restoreFocus) els.analyticsFilterToggle?.focus();
+}
+
 function detailFilterName() {
   if (!detailFilter) return '';
   if (detailFilter.type === 'period') return `детали: ${detailFilter.key}`;
@@ -2505,7 +2625,7 @@ function renderPeriodChart(periods, categoryOrder = new Map()) {
   lastPeriodChartCategoryOrder = categoryOrder;
   const compact = window.innerWidth <= 760;
   lastPeriodChartLayout = compact ? 'compact' : 'wide';
-  const width = compact ? 420 : 960;
+  const width = compact ? 420 : 640;
   const height = compact ? 260 : 300;
   const margin = compact
     ? { top: 16, right: 12, bottom: 42, left: 54 }
@@ -2588,13 +2708,13 @@ function renderPeriodChart(periods, categoryOrder = new Map()) {
       y: y + 4,
       'text-anchor': 'end',
       fill: mutedColor,
-      'font-size': 11
+      'font-size': 13
     }, compactAmount(value)));
   }
 
   const slot = plotWidth / periods.length;
   const barWidth = Math.max(3, Math.min(42, slot * 0.68));
-  const labelStep = Math.max(1, Math.ceil(periods.length / 9));
+  const labelStep = Math.max(1, Math.ceil(periods.length / (compact ? 4 : 6)));
 
   periods.forEach((item, index) => {
     const center = margin.left + slot * index + slot / 2;
@@ -2666,8 +2786,8 @@ function renderPeriodChart(periods, categoryOrder = new Map()) {
         y: height - 18,
         'text-anchor': 'middle',
         fill: mutedColor,
-        'font-size': 11
-      }, item.key));
+        'font-size': 13
+      }, /^\d{4}-\d{2}$/.test(item.key) ? new Intl.DateTimeFormat('ru-RU', { month: 'short', year: '2-digit', timeZone: 'UTC' }).format(new Date(`${item.key}-01T12:00:00Z`)) : item.key));
     }
   });
 }
@@ -2735,11 +2855,17 @@ function categoryMetaText(item, total) {
   return `${formatRub(item.amount)} · ${percent}% · ${formatCount(item.count, ['покупка', 'покупки', 'покупок'])}${compare ? ` · ${compare}` : ''}`;
 }
 
+let operationsDialogPlaceholder = null;
 function scrollDetailsIntoView() {
-  setAnalyticsDetailsExpanded(true);
-  requestAnimationFrame(() => {
-    els.detailTitle.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
+  const dialog = document.getElementById('operationsDialog');
+  const panel = els.detailTitle.closest('.detail-panel');
+  if (!operationsDialogPlaceholder) {
+    operationsDialogPlaceholder = document.createComment('operation table location');
+    panel.before(operationsDialogPlaceholder);
+  }
+  document.getElementById('operationsDialogBody').append(panel);
+  if (!dialog.open) dialog.showModal();
+  dialog.scrollTop = 0;
 }
 
 function setAnalyticsDetailsExpanded(expanded) {
@@ -2965,7 +3091,7 @@ function renderCategoryBreakdown(records, previousRecords = []) {
   if (!entries.length) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
-    empty.textContent = 'Нет покупок в выборке';
+    empty.textContent = 'Нет распознанных товаров в выборке';
     els.categoryBreakdown.appendChild(empty);
     return;
   }
@@ -3606,8 +3732,8 @@ function renderReportTrust(records = rows) {
     els.reportTrust.hidden = true;
     return;
   }
-  const audit = reportQuality.auditCollection(records, lastCollectionReport);
-  const needsAttention = audit.state === 'attention' || lastWarningCount > 0;
+  const audit = reportQuality.auditCollection(records, { ...lastCollectionReport, hasUnverifiedCsv });
+  const needsAttention = audit.state === 'attention' || audit.state === 'mixed' || lastWarningCount > 0;
   els.reportTrust.hidden = false;
   if (demoMode) {
     els.reportTrust.hidden = true;
@@ -3618,7 +3744,9 @@ function renderReportTrust(records = rows) {
   els.reportTrustBadge.textContent = audit.state === 'imported'
     ? 'Загруженный файл'
     : (needsAttention ? 'Нужно проверить' : 'Сбор проверен');
-  if (audit.state === 'imported') {
+  if (audit.state === 'mixed') {
+    els.reportTrustTitle.textContent = 'В отчёте есть CSV: полноту этой части проверить нельзя';
+  } else if (audit.state === 'imported') {
     els.reportTrustTitle.textContent = 'Полноту загруженной таблицы проверить нельзя';
   } else if (audit.state === 'attention') {
     els.reportTrustTitle.textContent = 'Часть чеков собрана не полностью';
@@ -3638,6 +3766,7 @@ function renderReportTrust(records = rows) {
       ];
   els.reportTrustText.textContent = [
     ...collectionFacts,
+    audit.state === 'mixed' ? 'сверка чеков относится только к собранным данным' : '',
     `категории определены у ${quality.coverage}% покупок`,
     quality.reviewAmount ? `категория примерная у ${formatRub(quality.reviewAmount)}` : '',
     lastRunAt ? `обновлено ${formatRunTime(lastRunAt)}` : ''
@@ -3743,6 +3872,8 @@ function homeGuideTasks(refundResult = null) {
       detail: budgetAlert,
       button: 'Открыть бюджет',
       action: () => {
+        setAnalyticsDetailsExpanded(true);
+        document.getElementById('analyticsReports').open = true;
         els.budgetCard.open = true;
         els.budgetCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
@@ -4218,7 +4349,9 @@ function openOperationEditor(rowId) {
   operationReturnFocusRowId = rowId;
   renderProfiles();
   renderCategorySelectors();
-  els.operationTitlePreview.textContent = `${row.title} · ${shortDate(row.date)} · ${formatRub(rowAmount(row))}`;
+  els.operationTitlePreview.textContent = `${isFallbackCollectedRow(row) ? 'Чек без списка товаров' : row.title} · ${shortDate(row.date)} · ${formatRub(rowAmount(row))}`;
+  clearNode(els.operationReceipt);
+  els.operationReceipt.append(createReceiptActions(row));
   if ([...els.operationCategorySelect.options].some((option) => option.value === row.category)) {
     els.operationCategorySelect.value = row.category;
     els.operationCategoryInput.value = '';
@@ -4331,11 +4464,11 @@ function focusOperationReturn() {
   requestAnimationFrame(() => {
     const target = [...document.querySelectorAll('.detail-edit')]
       .find((button) => button.dataset.rowId === rowId);
-    if (target) target.focus();
-    else {
+    if (target?.getClientRects().length && !target.closest('[inert]')) target.focus();
+    else if (els.detailTitle.getClientRects().length && !els.detailTitle.closest('[inert]')) {
       els.detailTitle.tabIndex = -1;
       els.detailTitle.focus();
-    }
+    } else document.querySelector('.view-panel.active')?.focus({ preventScroll: true });
   });
 }
 
@@ -4351,6 +4484,7 @@ function refundLifecycleClaim(claim) {
     id: claim.id,
     rowId: claim.rowId,
     marketplace_id: claim.marketplace_id,
+    profile: claim.profile,
     source: claim.source,
     title: claim.title,
     expectedAmount: claim.expectedAmount,
@@ -4732,12 +4866,26 @@ function renderRefundCenter(result = refundCenterResult()) {
       actions.push(smallButton('Покупка', () => openOperationEditor(stored.rowId), 'secondary'));
     }
     if (item.status === 'disputed' && item.candidateRowIds.length && stored) {
+      const candidateSelect = document.createElement('select');
+      candidateSelect.setAttribute('aria-label', `Возврат для ${item.title}`);
+      const refundRows = new Map(result.rows.map((row) => [row.rowId, row]));
+      for (const rowId of item.candidateRowIds) {
+        const refund = refundRows.get(rowId);
+        const option = document.createElement('option');
+        option.value = rowId;
+        option.textContent = `${formatRub(Math.abs(rowAmount(refund)))} · ${shortDate(refund.date)}`;
+        candidateSelect.appendChild(option);
+      }
+      const candidateWrap = document.createElement('span');
+      candidateWrap.className = 'select-control';
+      candidateWrap.appendChild(candidateSelect);
+      actions.push(candidateWrap);
       actions.push(smallButton('Это возврат', () => {
         try {
           const confirmed = lifecycle.confirmDisputedReturn(
             refundLifecycleClaim(stored),
             result.rows,
-            [item.candidateRowIds[0]],
+            [candidateSelect.value],
             { now: localInputDate(new Date()) }
           );
           Object.assign(stored, confirmed, { profile: stored.profile });
@@ -4908,6 +5056,7 @@ async function importBackup() {
       throw new Error('резервная копия слишком велика');
     }
     const backup = featureStorage.parseBackup(await file.text());
+    assertSupportedCurrencies(backup.rows, 'резервной копии');
     if (mutationGeneration !== databaseMutationGeneration) throw new Error('импорт отменён: локальные данные изменились в другой вкладке');
     const exportedAt = new Date(backup.exportedAt);
     const exportedLabel = Number.isFinite(exportedAt.getTime())
@@ -4944,6 +5093,7 @@ async function importBackup() {
     appendLog(`Резервная копия восстановлена: строк ${sourceRows.length}.`);
   } catch (error) {
     showWarnings([error.message]);
+    setStatus(`Ошибка восстановления из копии: ${error.message}`);
     appendLog(`Ошибка восстановления из копии: ${error.message}`);
   } finally {
     els.importDataBackupInput.value = '';
@@ -5019,14 +5169,13 @@ async function deleteAllData() {
     } catch (error) {
       collectJobCleanupError = error;
     }
-    const nextEpoch = await featureStorage.clear();
-    const clearedState = await featureStorage.loadWithEpoch();
+    const clearedState = await featureStorage.clear();
     adoptLoadedDataRevision(clearedState.revision);
     for (let index = localStorage.length - 1; index >= 0; index -= 1) {
       const key = localStorage.key(index);
       if (key?.startsWith('kupleno-')) localStorage.removeItem(key);
     }
-    resetLocalDataAfterClear(nextEpoch, false);
+    resetLocalDataAfterClear(clearedState.epoch, false);
     dataSyncChannel?.postMessage({
       type: 'data-cleared',
       epoch: dataEpoch,
@@ -5081,6 +5230,10 @@ function demoRows() {
 }
 
 function showDemo() {
+  if (unsupportedCurrencyCodes.length) {
+    setStatus(unsupportedCurrencyError(sourceRows, 'локальной базе'));
+    return;
+  }
   if (demoMode) return;
   demoRestoreState = captureAppState();
   demoMode = true;
@@ -5119,6 +5272,7 @@ function exitDemo(next = '') {
   if (restoreState) restoreCapturedState(restoreState);
   else {
     hasCollected = false;
+    hasUnverifiedCsv = false;
     lastRunAt = null;
     lastRunKind = '';
     lastWarningCount = 0;
@@ -5230,19 +5384,155 @@ function shortDate(value) {
   return String(value || '').slice(0, 10);
 }
 
+function purchaseDisplayDate(value) {
+  const date = parseRowDate(value);
+  return date ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(date) : shortDate(value);
+}
+
 function topItemMeta(item) {
-  const dates = shortDate(item.firstDate) === shortDate(item.lastDate)
-    ? shortDate(item.firstDate)
-    : `${shortDate(item.firstDate)} - ${shortDate(item.lastDate)}`;
+  const dates = purchaseDisplayDate(item.firstDate) === purchaseDisplayDate(item.lastDate)
+    ? purchaseDisplayDate(item.firstDate)
+    : `${purchaseDisplayDate(item.firstDate)} - ${purchaseDisplayDate(item.lastDate)}`;
   const parts = [];
   if (item.count > 1) parts.push(formatCount(item.count, ['покупка', 'покупки', 'покупок']));
   if (item.refunds) parts.push(formatCount(item.refunds, ['возврат', 'возврата', 'возвратов']));
   return `${sourceLabels[item.source] || item.source}, ${dates}${parts.length ? `, ${parts.join(', ')}` : ''}`;
 }
 
+function createPurchaseArt(category, title) {
+  const paths = {
+    'Электроника': 'M7 4h10v16H7Z M10 17h4 M10 7h4',
+    'Бытовая техника': 'M6 3h12v18H6Z M9 6h1 M13 6h2 M16 14a4 4 0 1 1-8 0 4 4 0 0 1 8 0',
+    'Продукты': 'M5 8h14l-2 13H7Z M8 8V6a4 4 0 0 1 8 0v2 M9 13v4 M15 13v4',
+    'Обувь': 'M5 6l5 4 1 4 8 3v3H3v-7Z M12 14l-2 2 M15 15l-2 2',
+    'Одежда': 'M8 4l4 2 4-2 5 4-3 4-2-2v11H8V10l-2 2-3-4Z',
+    'Авто': 'M4 11l2-6h12l2 6v8h-3v-3H7v3H4Z M4 11h16 M7 13v1 M17 13v1',
+    'Дом': 'M3 11l9-8 9 8 M5 10v11h14V10 M10 21v-7h4v7',
+    'Спорт': 'M3 9v6 M6 6v12 M6 12h12 M18 6v12 M21 9v6',
+    'Книги': 'M3 4h7l2 2 2-2h7v15h-7l-2 2-2-2H3Z M12 6v15',
+    'Музыка': 'M9 17V5l11-2v12 M9 17c0 4-7 4-7 1s7-4 7-1 M20 15c0 4-7 4-7 1s7-4 7-1',
+    'Здоровье': 'M9 3h6v6h6v6h-6v6H9v-6H3V9h6Z'
+  };
+  const art = document.createElement('span');
+  art.className = 'purchase-art';
+  art.setAttribute('aria-hidden', 'true');
+  art.style.setProperty('--item-color', categoryColor(category));
+  const icon = document.createElementNS(svgNamespace, 'svg');
+  icon.setAttribute('class', 'ui-icon');
+  icon.setAttribute('viewBox', '0 0 24 24');
+  const shape = document.createElementNS(svgNamespace, 'path');
+  const name = String(title || '').toLocaleLowerCase('ru-RU');
+  const productPath = /наушник/.test(name) ? 'M4 14v-3a8 8 0 0 1 16 0v3 M4 12H2v7h5v-7Z M20 12h2v7h-5v-7Z'
+    : /робот.*пылесос/.test(name) ? 'M21 13a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M8 7h8 M10 17h4 M13 10a1 1 0 1 1-2 0 1 1 0 0 1 2 0'
+    : /кофе/.test(name) ? 'M5 9h12v6a6 6 0 0 1-12 0Z M17 10h2a3 3 0 0 1 0 6h-2 M3 22h17 M8 3v3 M13 2v4'
+    : /лампа/.test(name) ? 'M8 3h8l4 10H4Z M12 13v8 M7 21h10 M16 13v4' : null;
+  shape.setAttribute('d', productPath || paths[category] || 'M3 7l9-4 9 4v12l-9 3-9-3Z M3 7l9 4 9-4 M12 11v11 M7 5l9 4v5');
+  icon.append(shape);
+  art.append(icon);
+  return art;
+}
+
+function safeReceiptUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password ? url.href : '';
+  } catch { return ''; }
+}
+
+function createReceiptActions(row) {
+  const actions = document.createElement('div');
+  actions.className = 'receipt-actions';
+  const url = safeReceiptUrl(archiveRecordForRow(row.rowId)?.url) || safeReceiptUrl(row.receipt_url);
+  if (url) {
+    const link = document.createElement('a');
+    link.className = 'receipt-link';
+    link.textContent = 'Открыть чек';
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.setAttribute('aria-label', `Открыть чек за ${purchaseDisplayDate(row.date)} на ${formatRub(rowAmount(row))} в новой вкладке`);
+    actions.append(link);
+  } else {
+    const note = document.createElement('span');
+    note.className = 'receipt-unavailable';
+    note.textContent = 'Ссылка на чек не сохранена. Его можно найти в истории заказов магазина.';
+    actions.append(note);
+  }
+  return actions;
+}
+
+let inspectorEditContext = null;
+function openPurchaseInspector(records, title = 'Чеки без списка товаров') {
+  if (!records.length) return;
+  els.purchaseInspectorTitle.textContent = title;
+  els.purchaseInspectorSummary.textContent = `${formatCount(records.length, ['операция', 'операции', 'операций'])}. Чек откроется в новой вкладке; отчёт останется на месте.`;
+  clearNode(els.purchaseInspectorList);
+  if (records.some(isFallbackCollectedRow)) {
+    const note = document.createElement('p');
+    note.className = 'receipt-explanation inspector-explanation';
+    note.textContent = 'Суммы этих чеков учтены в расходах, но список товаров прочитать не удалось. Совпадение сумм само по себе не доказывает дубль — сравните исходные чеки.';
+    els.purchaseInspectorList.append(note);
+  }
+  for (const row of records) {
+    const entry = document.createElement('section');
+    entry.className = 'inspector-entry';
+    const head = document.createElement('div');
+    head.className = 'inspector-entry-head';
+    const date = document.createElement('span');
+    date.textContent = `${sourceLabels[row.source] || row.source} · ${purchaseDisplayDate(row.date)}`;
+    const amount = document.createElement('strong');
+    amount.textContent = formatRub(rowAmount(row));
+    head.append(createSourceBadge(row.source), date, amount);
+    const description = document.createElement('p');
+    const fallback = isFallbackCollectedRow(row);
+    description.hidden = fallback;
+    description.textContent = fallback ? '' : `${isRefundRow(row) ? 'Возврат' : 'Покупка'} · ${categoryName(row.category)}`;
+    const reference = document.createElement('p');
+    reference.className = 'receipt-unavailable';
+    reference.textContent = row.marketplace_id ? `Номер в источнике: ${row.marketplace_id}` : 'Номер в источнике не сохранён';
+    const actions = createReceiptActions(row);
+    if (!demoMode) {
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'secondary';
+      edit.textContent = 'Изменить операцию';
+      edit.disabled = collectionInProgress;
+      edit.addEventListener('click', () => {
+        inspectorEditContext = { rowIds: records.map(item => item.rowId), title, scrollTop: els.purchaseInspector.scrollTop };
+        els.purchaseInspector.close();
+        openOperationEditor(row.rowId);
+      });
+      actions.append(edit);
+    }
+    entry.append(head, description, reference, actions);
+    els.purchaseInspectorList.append(entry);
+  }
+  if (!els.purchaseInspector.open) els.purchaseInspector.showModal();
+  els.purchaseInspector.scrollTop = 0;
+}
+
+function renderUnreadReceipts(records) {
+  const unread = records.filter((row) => isFallbackCollectedRow(row));
+  clearNode(els.unreadReceipts);
+  els.unreadReceipts.hidden = !unread.length;
+  if (!unread.length) return;
+  const title = document.createElement('strong');
+  title.textContent = `Чеки без списка товаров: ${unread.length}`;
+  const text = document.createElement('p');
+  text.textContent = 'Их суммы учтены в расходах. Откройте исходные чеки, чтобы понять, что было куплено.';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'secondary';
+  button.textContent = 'Посмотреть чеки';
+  button.addEventListener('click', () => openPurchaseInspector(unread));
+  els.unreadReceipts.append(title, text, button);
+}
+
 function renderTopItems(records) {
   clearNode(els.topItems);
-  const items = buildTopItems(records);
+  renderUnreadReceipts(records);
+  const topItemRecords = records.filter((row) => !isFallbackCollectedRow(row));
+  const items = buildTopItems(topItemRecords);
   if (!items.length) {
     const empty = document.createElement('li');
     empty.className = 'empty-state';
@@ -5265,7 +5555,7 @@ function renderTopItems(records) {
     title.title = `${sourceLabels[item.source] || item.source}: ${item.title}`;
     const meta = document.createElement('span');
     meta.className = 'top-item-meta';
-    meta.textContent = topItemMeta(item);
+    meta.textContent = `${topItemMeta(item)} · ${categoryName(item.category)}`;
     const category = document.createElement('span');
     category.className = 'category-pill';
     category.style.setProperty('--category-color', categoryColor(item.category));
@@ -5274,13 +5564,9 @@ function renderTopItems(records) {
     const amount = document.createElement('strong');
     amount.className = 'top-item-amount';
     amount.textContent = formatRub(item.amount);
-    li.append(text, amount);
-    makeClickable(li, () => setDetailFilter({
-      type: 'item',
-      source: item.source,
-      title: item.title,
-      label: item.title
-    }, true));
+    li.append(createPurchaseArt(item.category, item.title), text, amount);
+    makeClickable(li, () => openPurchaseInspector(topItemRecords.filter((row) => row.source === item.source
+      && normalizeKeyText(row.title) === normalizeKeyText(item.title)), item.title));
     els.topItems.appendChild(li);
   }
 }
@@ -5470,7 +5756,7 @@ function renderDetails(records, group) {
     title.className = 'detail-title';
     title.title = row.title || '';
     const titleText = document.createElement('span');
-    titleText.textContent = row.title || '';
+    titleText.textContent = isFallbackCollectedRow(row) ? 'Чек без списка товаров' : (row.title || '');
     const edit = document.createElement('button');
     edit.type = 'button';
     edit.className = 'detail-edit';
@@ -5478,7 +5764,13 @@ function renderDetails(records, group) {
     edit.dataset.rowId = row.rowId;
     edit.setAttribute('aria-label', `Изменить операцию ${row.title || ''}`);
     edit.addEventListener('click', () => openOperationEditor(row.rowId));
-    title.append(titleText, edit);
+    const inspect = document.createElement('button');
+    inspect.type = 'button';
+    inspect.className = 'detail-edit';
+    inspect.textContent = 'Посмотреть';
+    inspect.setAttribute('aria-label', `Посмотреть операцию ${row.title || ''}`);
+    inspect.addEventListener('click', () => openPurchaseInspector([row], isFallbackCollectedRow(row) ? 'Чек без списка товаров' : row.title));
+    title.append(titleText, inspect, edit);
 
     const category = document.createElement('button');
     category.type = 'button';
@@ -5521,6 +5813,7 @@ function updateDetailsOnly() {
 }
 
 function updateAnalytics() {
+  if (unsupportedCurrencyCodes.length) return;
   syncDateInputs();
   const sources = selectedAnalyticsSources();
   const group = els.periodGroup.value;
@@ -5665,6 +5958,7 @@ async function uploadCsv() {
       }
     }
     if (!importedRows.length) throw new Error('в CSV нет строк');
+    const importedSettings = settingsForImportedProfiles(importedRows);
 
     demoMode = false;
     hasCollected = true;
@@ -5681,10 +5975,12 @@ async function uploadCsv() {
     renderSourceStatuses();
     const combinedRows = [...existingRows, ...importedRows];
     stateChanged = true;
+    appSettings = importedSettings;
     let cleaningStats;
     let warnings;
     let kind;
     const saved = await withAutomaticPersistenceSuppressed(async () => {
+      hasUnverifiedCsv = true;
       cleaningStats = updateResult(combinedRows, {});
       warnings = cleaningStats.duplicateRowsDropped ? [`Удалено дублей при объединении: ${cleaningStats.duplicateRowsDropped}`] : [];
       renderQualitySummary(combinedRows, {}, {
@@ -5915,6 +6211,17 @@ els.emptyUploadCsv.addEventListener('click', () => els.uploadCsv.click());
 els.emptyReset.addEventListener('click', resetAnalyticsFilters);
 els.homeGuidePrimary.addEventListener('click', () => homeGuidePrimaryAction?.());
 els.homeGuideSecondary.addEventListener('click', () => homeGuideSecondaryAction?.());
+els.analyticsFilterDetails?.addEventListener('toggle', syncAnalyticsFilterDisclosure);
+document.addEventListener?.('pointerdown', (event) => {
+  if (!els.analyticsFilterDetails?.open || els.analyticsFilterDetails.contains?.(event.target)) return;
+  closeAnalyticsFilterDisclosure();
+});
+document.addEventListener?.('keydown', (event) => {
+  if (event.key !== 'Escape' || !els.analyticsFilterDetails?.open) return;
+  event.preventDefault();
+  closeAnalyticsFilterDisclosure({ restoreFocus: true });
+});
+syncAnalyticsFilterDisclosure();
 els.uploadCsvInput.addEventListener('change', () => {
   uploadCsv().catch((error) => appendLog(`Ошибка загрузки CSV: ${error.message}`));
 });
@@ -5934,6 +6241,7 @@ els.analyticsDetails.addEventListener('toggle', () => {
   els.toggleAnalyticsDetails.setAttribute('aria-expanded', String(expanded));
 });
 window.addEventListener('resize', () => {
+  updateNavigationLayout();
   const nextLayout = window.innerWidth <= 760 ? 'compact' : 'wide';
   if (nextLayout === lastPeriodChartLayout) return;
   cancelAnimationFrame(periodChartResizeFrame);
@@ -5974,14 +6282,16 @@ els.themeToggle.addEventListener('click', () => {
 for (const button of els.tabButtons) {
   button.addEventListener('click', () => setActiveView(button.dataset.view));
   button.addEventListener('keydown', (event) => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const vertical = window.innerWidth >= 1200;
+    const keys = vertical ? ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'] : ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+    if (!keys.includes(event.key)) return;
     event.preventDefault();
     const current = els.tabButtons.indexOf(button);
     const next = event.key === 'Home'
       ? 0
       : (event.key === 'End'
           ? els.tabButtons.length - 1
-          : (current + (event.key === 'ArrowRight' ? 1 : -1) + els.tabButtons.length) % els.tabButtons.length);
+          : (current + (['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1) + els.tabButtons.length) % els.tabButtons.length);
     const target = els.tabButtons[next];
     setActiveView(target.dataset.view);
     target.focus();
@@ -6055,7 +6365,9 @@ for (const [, input] of collectSourceInputs) {
   input.addEventListener('change', () => {
     updateProgressFill();
     renderSourceConnectionStates();
-    if (els.onboardingStart) els.onboardingStart.disabled = selectedCollectSources().length === 0;
+    if (els.onboardingStart) {
+      els.onboardingStart.disabled = unsupportedCurrencyCodes.length > 0 || selectedCollectSources().length === 0;
+    }
     try {
       localStorage.setItem(collectSourcesStorageKey, JSON.stringify(selectedCollectSources()));
     } catch {
@@ -6181,6 +6493,12 @@ els.markWarranty.addEventListener('change', () => {
 els.operationDocumentUrl.addEventListener('input', () => els.operationDocumentUrl.setCustomValidity(''));
 els.operationEditor.addEventListener('close', () => {
   selectedOperationRowId = '';
+  if (inspectorEditContext) {
+    const context = inspectorEditContext;
+    inspectorEditContext = null;
+    const current = context.rowIds.map(id => rows.find(row => row.rowId === id) || sourceRows.find(row => row.rowId === id)).filter(Boolean);
+    if (current.length) { openPurchaseInspector(current, context.title); els.purchaseInspector.scrollTop = context.scrollTop; return; }
+  }
   focusOperationReturn();
 });
 els.exportDataBackup.addEventListener('click', () => {
@@ -6300,7 +6618,7 @@ async function initializeApp() {
     updateProgressFill();
   }
   await refreshSourcePermissionStates();
-  els.onboardingStart.disabled = selectedCollectSources().length === 0;
+  els.onboardingStart.disabled = unsupportedCurrencyCodes.length > 0 || selectedCollectSources().length === 0;
   await renderHistory();
   await checkStorageHealth();
   checkForUpdate();
@@ -6309,14 +6627,31 @@ async function initializeApp() {
     setStatus(message);
     appendLog(message, 'collect-job-recovery');
   }
-  els.collect.disabled = false;
-  els.uploadCsv.disabled = false;
+  els.collect.disabled = unsupportedCurrencyCodes.length > 0;
+  els.uploadCsv.disabled = unsupportedCurrencyCodes.length > 0;
 }
 
 initializeApp().catch((error) => {
-  els.collect.disabled = false;
-  els.uploadCsv.disabled = false;
+  els.collect.disabled = unsupportedCurrencyCodes.length > 0;
+  els.uploadCsv.disabled = unsupportedCurrencyCodes.length > 0;
   appendLog(`Ошибка запуска: ${error.message}`);
   setStatus(`Ошибка запуска: ${error.message}`);
   updateAnalytics();
+});
+
+// One focused receipt window, dismissed without expanding the report below it.
+els.purchaseInspectorClose.addEventListener('click', () => els.purchaseInspector.close());
+els.purchaseInspector.addEventListener('click', (event) => {
+  if (event.target !== els.purchaseInspector) return;
+  const box = els.purchaseInspector.getBoundingClientRect();
+  if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) els.purchaseInspector.close();
+});
+
+const operationsDialog = document.getElementById('operationsDialog');
+document.getElementById('operationsDialogClose').addEventListener('click', () => operationsDialog.close());
+operationsDialog.addEventListener('close', () => {
+  const panel = document.querySelector('#operationsDialogBody .detail-panel');
+  if (panel && operationsDialogPlaceholder) operationsDialogPlaceholder.replaceWith(panel);
+  operationsDialogPlaceholder = null;
+  if (document.activeElement === document.body) document.querySelector('.view-panel.active')?.focus({ preventScroll: true });
 });

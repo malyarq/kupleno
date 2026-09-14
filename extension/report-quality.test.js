@@ -33,4 +33,20 @@ const imported = quality.auditCollection([{ source: 'ozon', date: '2026-01-01', 
 assert.equal(imported.state, 'imported');
 assert.equal(imported.coverage, null);
 
+const mixed = quality.auditCollection([
+  { source: 'ozon', amount: '42.00' },
+  { source: 'ozon', amount: '100.00', parse_quality: 'complete' }
+], {
+  sources: ['ozon'],
+  stats: { ozon: { receipts: 1, parsedReceipts: 1 } },
+  hasUnverifiedCsv: true
+});
+assert.equal(mixed.state, 'mixed', 'новый сбор не подтверждает полноту ранее импортированного CSV');
+assert.equal(mixed.parsed, 1);
+assert.equal(mixed.rowCount, 2);
+assert.equal(quality.auditCollection([
+  { source: 'ozon', amount: '42.00' },
+  { source: 'yandex', amount: '100.00' }
+], { stats: { ozon: { receipts: 1, parsedReceipts: 1 } } }).state, 'attention');
+
 console.log('report-quality.test.js: ok');

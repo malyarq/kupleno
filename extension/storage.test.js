@@ -568,7 +568,7 @@ async function testIndexedDbLifecycle() {
   history[0].metadata.sequence = 999;
   assert.deepEqual((await storage.list()).map((entry) => entry.metadata.sequence), expectedSequences);
 
-  assert.equal(await storage.clear(), 1);
+  assert.deepEqual(await storage.clear(), { epoch: 1, revision: HISTORY_LIMIT + 3 });
   assert.equal(await storage.getEpoch(), 1);
   assert.equal(await storage.load(), null);
   assert.deepEqual(await storage.loadWithEpoch(), { epoch: 1, revision: HISTORY_LIMIT + 3, snapshot: null });
@@ -623,12 +623,21 @@ async function testConcurrentRevisionCas() {
   assert.equal(afterStaleRestore.revision, 2);
   assert.equal(afterStaleRestore.snapshot.id, newer.id);
 
-  await second.clear();
+  const cleared = await first.clear();
+  assert.deepEqual(cleared, { epoch: 1, revision: 3 });
+  const savedAfterClear = await second.save(lifecycleData(4), {
+    expectedEpoch: cleared.epoch,
+    expectedRevision: cleared.revision
+  });
+  assert.equal(savedAfterClear.revision, 4);
   await assert.rejects(
-    first.save(lifecycleData(4), { expectedEpoch: afterStaleRestore.epoch, expectedRevision: afterStaleRestore.revision }),
+    first.save(lifecycleData(5), { expectedEpoch: afterStaleRestore.epoch, expectedRevision: afterStaleRestore.revision }),
     (error) => error?.code === 'STALE_DATA_EPOCH' && error.currentEpoch === 1
   );
-  assert.deepEqual(await first.loadWithEpoch(), { epoch: 1, revision: 3, snapshot: null });
+  const afterStaleSave = await first.loadWithEpoch();
+  assert.equal(afterStaleSave.epoch, 1);
+  assert.equal(afterStaleSave.revision, 4);
+  assert.equal(afterStaleSave.snapshot.id, savedAfterClear.id);
 }
 
 async function testRecoveryAfterFailedTransaction() {

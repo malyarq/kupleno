@@ -27,6 +27,7 @@ function fakeElement() {
     appendChild() {},
     removeChild() {},
     setAttribute() {},
+    hasAttribute() { return false; },
     toggleAttribute() {},
     closest() { return fakeElement(); },
     scrollIntoView() {},
@@ -203,6 +204,51 @@ assert.deepEqual(normalizedDamagedSettings.profiles, [{ id: 'дом', name: 'Д�
 assert.equal(normalizedDamagedSettings.activeProfile, 'all');
 assert.equal(normalizedDamagedSettings.dataProfile, 'дом');
 assert.deepEqual(normalizedDamagedSettings.budgets['2026-07'], { total: null, categories: { Дом: 5000 } });
+
+const csvProfileSettings = JSON.parse(JSON.stringify(context.settingsForImportedProfiles([
+  { profile: 'work' }
+], context.normalizeSettings({}))));
+assert.deepEqual(csvProfileSettings.profiles, [
+  { id: 'personal', name: 'Личный' },
+  { id: 'work', name: 'work' }
+]);
+const profilesBeforeRejectedImport = JSON.stringify(csvProfileSettings);
+assert.throws(
+  () => context.settingsForImportedProfiles([{ profile: 'Рабочий' }], csvProfileSettings),
+  /некорректный ID профиля в CSV/
+);
+assert.equal(JSON.stringify(csvProfileSettings), profilesBeforeRejectedImport);
+assert.throws(
+  () => context.settingsForImportedProfiles(
+    Array.from({ length: 99 }, (_, index) => ({ profile: `profile-${index}` })),
+    csvProfileSettings
+  ),
+  /больше 100 профилей/
+);
+
+const unsupportedCurrencySnapshot = {
+  createdAt: '2026-09-01T00:00:00.000Z',
+  rows: [{
+    date: '2026-09-01', source: 'ozon', title: 'Legacy USD', amount: '10.00', currency: 'USD', type: 'purchase'
+  }],
+  settings: {},
+  metadata: { hasCollected: true, collection: { sources: [], stats: {}, warnings: [] } }
+};
+assert.equal(context.restoreSnapshot(unsupportedCurrencySnapshot), true);
+assert.equal(vm.runInContext('sourceRows[0].currency', context), 'USD');
+assert.equal(vm.runInContext('rows.length', context), 0);
+assert.equal(element('saveBudget').disabled, true);
+assert.equal(element('analyticsEmptyActions').hidden, false);
+assert.equal(element('emptyCollect').hidden, true);
+assert.equal(element('emptyUploadCsv').hidden, true);
+assert.equal(vm.runInContext('unsupportedCurrencyBackupButton.textContent', context), 'Скачать резервную копию');
+const rawRowsBeforeRejectedBackup = vm.runInContext('JSON.stringify(sourceRows)', context);
+assert.throws(
+  () => context.assertSupportedCurrencies(unsupportedCurrencySnapshot.rows, 'резервной копии'),
+  /Неподдерживаемая валюта USD.*Скачайте резервную копию/
+);
+assert.equal(vm.runInContext('JSON.stringify(sourceRows)', context), rawRowsBeforeRejectedBackup);
+vm.runInContext('unsupportedCurrencyCodes = []; sourceRows = []; rows = [];', context);
 
 const advancedRuleSettings = JSON.parse(JSON.stringify(context.normalizeSettings({
   customRules: [{
@@ -608,6 +654,10 @@ const legacyRestoreIndex = initializeBody.indexOf('restoreLastRun()');
 const migrationSaveIndex = initializeBody.indexOf("persistSnapshot('Миграция старого отчёта')");
 assert.ok(loadIndex >= 0 && legacyRestoreIndex > loadIndex && migrationSaveIndex > legacyRestoreIndex);
 assert.match(initializeBody, /adoptLoadedDataEpoch\(loaded\.epoch\)/);
+assert.match(initializeBody, /els\.onboardingStart\.disabled = unsupportedCurrencyCodes\.length > 0 \|\| selectedCollectSources\(\)\.length === 0/);
+const initializeFailureBody = fullSource.slice(fullSource.indexOf('initializeApp().catch((error) => {'));
+assert.match(initializeFailureBody, /els\.collect\.disabled = unsupportedCurrencyCodes\.length > 0/);
+assert.match(initializeFailureBody, /els\.uploadCsv\.disabled = unsupportedCurrencyCodes\.length > 0/);
 assert.match(initializeBody, /dataEpoch === 0 && restoreLastRun\(\)/);
 assert.match(fullSource, /kupleno-last-run-v1/);
 assert.match(fullSource, /kupleno-budgets-v1/);
@@ -621,6 +671,29 @@ assert.ok(
     < deleteAllDataBody.indexOf('await featureStorage.clear()')
 );
 assert.match(deleteAllDataBody, /collectJobCleanupError/);
+assert.match(deleteAllDataBody, /const clearedState = await featureStorage\.clear\(\);/);
+assert.doesNotMatch(deleteAllDataBody, /await featureStorage\.loadWithEpoch\(\)/);
+const uploadCsvBody = fullSource.slice(
+  fullSource.indexOf('async function uploadCsv()'),
+  fullSource.indexOf('async function collect()')
+);
+assert.ok(
+  uploadCsvBody.indexOf('const importedSettings = settingsForImportedProfiles(importedRows);')
+    < uploadCsvBody.indexOf('updateResult(combinedRows, {})')
+);
+assert.ok(
+  uploadCsvBody.indexOf('hasUnverifiedCsv = true;')
+    < uploadCsvBody.indexOf('updateResult(combinedRows, {})')
+);
+assert.match(uploadCsvBody, /restoreCapturedState\(previousState\)/);
+const importBackupBody = fullSource.slice(
+  fullSource.indexOf('async function importBackup()'),
+  fullSource.indexOf('async function renderHistory()')
+);
+assert.ok(
+  importBackupBody.indexOf("assertSupportedCurrencies(backup.rows, 'резервной копии');")
+    < importBackupBody.indexOf("restoreSnapshot(backup, 'Импортирована резервная копия')")
+);
 const resetAfterClearBody = fullSource.slice(
   fullSource.indexOf('function resetLocalDataAfterClear('),
   fullSource.indexOf('function renderLog()')

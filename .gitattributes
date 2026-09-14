@@ -1,0 +1,4 @@
+# Keep source archives and vendored checksums identical on Windows and Unix.
+* text=auto eol=lf
+*.png binary
+*.zip binary

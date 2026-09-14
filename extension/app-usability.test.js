@@ -60,7 +60,7 @@ test('устаревшая категория подписок не предла
 });
 
 test('сложность не конкурирует с основным сценарием', () => {
-  const tabLabels = [...html.matchAll(/class="tab-button[^>]*>([^<]+)/g)].map((match) => match[1].trim());
+  const tabLabels = [...html.replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/g, "").matchAll(/class="tab-button[^>]*>([^<]+)/g)].map((match) => match[1].trim());
   assert.deepEqual(tabLabels, ['Отчёт', 'Категории', 'Проверить', 'Настройки']);
   assert.doesNotMatch(tabLabels.join(' '), /Диагностика|Контроль|Аналитика/);
   assert.match(html, /<details class="analytics-filter-details">/);

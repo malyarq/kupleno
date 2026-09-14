@@ -146,12 +146,16 @@
           throw new Error(`неизвестный marketplace в строке ${index + 2}`);
         }
 
+        const currency = String(row[indexByHeader.currency] || '').trim().toUpperCase() || 'RUB';
+        if (currency !== 'RUB') {
+          throw new Error(`неподдерживаемая валюта ${currency} в строке ${index + 2}; поддерживается только RUB`);
+        }
         const result = {
           date,
           source,
           title,
           amount: amount.toFixed(2),
-          currency: String(row[indexByHeader.currency] || 'RUB').trim() || 'RUB',
+          currency,
           category: String(row[indexByHeader.category] || '').trim(),
           type: normalizeType(row[indexByHeader.type], amount)
         };

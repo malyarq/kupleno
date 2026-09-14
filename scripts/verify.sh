@@ -4,6 +4,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUTPUT=${1:-"$ROOT/dist/kupleno-extension.zip"}
 case "$OUTPUT" in
+  [A-Za-z]:[\\/]*) OUTPUT=$(cygpath -u "$OUTPUT") ;;
   /*) ;;
   *) OUTPUT="$ROOT/$OUTPUT" ;;
 esac

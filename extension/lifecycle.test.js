@@ -80,6 +80,68 @@ assert.throws(() => lifecycle.confirmDisputedReturn(reconciled.returns[2], retur
 assert.throws(() => lifecycle.reconcileExpectedReturns([{ ...expectedReturns[0], id: 'bad', manualMatchRowIds: ['missing'] }], returnRows), /не найдена/);
 assert.equal(expectedReturns[2].manualMatchRowIds, undefined, 'входные ожидания не мутируются');
 
+const partialDifferentReceiptRows = [
+  { rowId: 'refund-other-receipt', date: '2026-07-05', profile: 'personal', source: 'ozon', marketplace_id: 'receipt-refund-40', title: 'Наушники', amount: -40, type: 'refund' },
+  { rowId: 'refund-other-receipt-60', date: '2026-07-06', profile: 'personal', source: 'ozon', marketplace_id: 'receipt-refund-60', title: 'Наушники', amount: -60, type: 'refund' },
+  { rowId: 'refund-before-purchase', date: '2026-06-30', profile: 'personal', source: 'ozon', marketplace_id: 'receipt-old-40', title: 'Наушники', amount: -40, type: 'refund' },
+  { rowId: 'refund-other-profile', date: '2026-07-05', profile: 'work', source: 'ozon', marketplace_id: 'receipt-work-40', title: 'Наушники', amount: -40, type: 'refund' },
+  { rowId: 'refund-other-source', date: '2026-07-05', profile: 'personal', source: 'wildberries', marketplace_id: 'receipt-wb-40', title: 'Наушники', amount: -40, type: 'refund' }
+];
+const partialDifferentReceiptExpected = {
+  id: 'partial-different-receipt', rowId: 'purchase-headphones', marketplace_id: 'receipt-purchase-100', profile: 'personal', source: 'ozon', title: 'Наушники', expectedAmount: 100, purchaseDate: '2026-07-01', requestedAt: '2026-07-02'
+};
+const partialDifferentReceipt = lifecycle.reconcileExpectedReturns([partialDifferentReceiptExpected], partialDifferentReceiptRows, { now: '2026-07-10' }).returns[0];
+assert.equal(partialDifferentReceipt.status, 'disputed', 'частичный возврат с другим receipt не сопоставляется автоматически');
+assert.deepEqual(partialDifferentReceipt.matchedRowIds, []);
+assert.deepEqual(partialDifferentReceipt.candidateRowIds, ['refund-other-receipt', 'refund-other-receipt-60'], 'кандидаты ограничены тем же профилем и источником');
+const confirmedPartialDifferentReceipt = lifecycle.confirmDisputedReturn(partialDifferentReceiptExpected, partialDifferentReceiptRows, ['refund-other-receipt'], { now: '2026-07-10' });
+const manuallyPartialDifferentReceipt = lifecycle.reconcileExpectedReturns([confirmedPartialDifferentReceipt], partialDifferentReceiptRows, { now: '2026-07-10' }).returns[0];
+assert.equal(manuallyPartialDifferentReceipt.status, 'disputed', 'после подтверждения части следующий кандидат остаётся доступен для ручного сопоставления');
+assert.equal(manuallyPartialDifferentReceipt.receivedAmount, 40);
+assert.equal(manuallyPartialDifferentReceipt.outstandingAmount, 60);
+assert.deepEqual(manuallyPartialDifferentReceipt.candidateRowIds, ['refund-other-receipt-60']);
+const confirmedSequentialPartial = lifecycle.confirmDisputedReturn(confirmedPartialDifferentReceipt, partialDifferentReceiptRows, ['refund-other-receipt-60'], { now: '2026-07-10' });
+const sequentiallyReconciled = lifecycle.reconcileExpectedReturns([confirmedSequentialPartial], partialDifferentReceiptRows, { now: '2026-07-10' }).returns[0];
+assert.equal(sequentiallyReconciled.status, 'received');
+assert.deepEqual(sequentiallyReconciled.manualMatchRowIds, ['refund-other-receipt', 'refund-other-receipt-60']);
+const exactAndManualPartialExpected = { ...partialDifferentReceiptExpected, id: 'exact-and-manual', marketplace_id: 'receipt-purchase-with-exact' };
+const exactAndManualPartialRows = [
+  { rowId: 'refund-exact-40', date: '2026-07-05', profile: 'personal', source: 'ozon', marketplace_id: 'receipt-purchase-with-exact', title: 'Наушники', amount: -40, type: 'refund' },
+  { rowId: 'refund-manual-60', date: '2026-07-06', profile: 'personal', source: 'ozon', marketplace_id: 'receipt-other-60', title: 'Наушники', amount: -60, type: 'refund' }
+];
+const exactAndManualPartial = lifecycle.reconcileExpectedReturns([exactAndManualPartialExpected], exactAndManualPartialRows, { now: '2026-07-10' }).returns[0];
+assert.deepEqual(exactAndManualPartial.matchedRowIds, ['refund-exact-40']);
+assert.deepEqual(exactAndManualPartial.candidateRowIds, ['refund-manual-60']);
+const confirmedExactAndManualPartial = lifecycle.confirmDisputedReturn(exactAndManualPartialExpected, exactAndManualPartialRows, ['refund-manual-60'], { now: '2026-07-10' });
+assert.deepEqual(confirmedExactAndManualPartial.manualMatchRowIds, ['refund-exact-40', 'refund-manual-60'], 'ручное подтверждение сохраняет точное частичное совпадение');
+const allocatedPartialRefunds = lifecycle.reconcileExpectedReturns([
+  confirmedSequentialPartial,
+  { ...partialDifferentReceiptExpected, id: 'second-purchase', rowId: 'purchase-headphones-2', marketplace_id: 'receipt-purchase-2' }
+], partialDifferentReceiptRows, { now: '2026-07-10' }).returns;
+assert.deepEqual(allocatedPartialRefunds[1].candidateRowIds, [], 'уже вручную распределённый возврат не предлагается повторно');
+
+const manualReservationRows = [
+  { rowId: 'refund-reserved', date: '2026-07-05', source: 'ozon', marketplace_id: 'shared-reservation', title: 'Кабель', amount: -100, type: 'refund' }
+];
+const automaticReservationClaim = { id: 'automatic-reservation', rowId: 'purchase-automatic-reservation', marketplace_id: 'shared-reservation', source: 'ozon', title: 'Кабель', expectedAmount: 100, requestedAt: '2026-07-01' };
+const manualReservationClaim = { id: 'manual-reservation', rowId: 'purchase-manual-reservation', marketplace_id: 'shared-reservation', source: 'ozon', title: 'Кабель', expectedAmount: 100, requestedAt: '2026-07-01', manualMatchRowIds: ['refund-reserved'] };
+for (const claims of [[automaticReservationClaim, manualReservationClaim], [manualReservationClaim, automaticReservationClaim]]) {
+  const reservationResults = lifecycle.reconcileExpectedReturns(claims, manualReservationRows, { now: '2026-07-10' }).returns;
+  const automatic = reservationResults.find((item) => item.id === 'automatic-reservation');
+  const manual = reservationResults.find((item) => item.id === 'manual-reservation');
+  assert.equal(automatic.status, 'pending');
+  assert.deepEqual(automatic.matchedRowIds, []);
+  assert.equal(manual.status, 'received');
+  assert.deepEqual(manual.matchedRowIds, ['refund-reserved']);
+}
+assert.throws(() => lifecycle.reconcileExpectedReturns([
+  manualReservationClaim,
+  { ...manualReservationClaim, id: 'duplicate-manual-reservation', rowId: 'purchase-duplicate-manual-reservation' }
+], manualReservationRows, { now: '2026-07-10' }), /уже привязана/);
+assert.throws(() => lifecycle.reconcileExpectedReturns([
+  { ...manualReservationClaim, source: 'wildberries' }
+], manualReservationRows, { now: '2026-07-10' }), /вручное совпадение не подходит/);
+
 const sharedOrderReturns = lifecycle.reconcileExpectedReturns([
   { id: 'item-a', rowId: 'purchase-a', marketplace_id: 'shared-order', source: 'ozon', title: 'Товар A', expectedAmount: 100, requestedAt: '2026-07-01' },
   { id: 'item-b', rowId: 'purchase-b', marketplace_id: 'shared-order', source: 'ozon', title: 'Товар B', expectedAmount: 200, requestedAt: '2026-07-01' }

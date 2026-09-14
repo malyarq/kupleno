@@ -65,6 +65,8 @@
     const sourceAudits = sources.map((source) => sourceAudit(source, safeRecords, stats));
     const warnings = (Array.isArray(report?.warnings) ? report.warnings : []).map(String).filter(Boolean);
     const hasCollectionEvidence = sourceAudits.some((item) => item.evidence);
+    const hasUnverifiedCsv = report?.hasUnverifiedCsv === true;
+    const missingSourceEvidence = sourceAudits.some((item) => !item.evidence);
     const attentionSources = sourceAudits.filter((item) => item.attention);
     const fallbackAmount = sourceAudits.reduce((sum, item) => sum + item.fallbackAmount, 0);
     const unverifiedAmount = sourceAudits.reduce((sum, item) => sum + item.unverifiedAmount, 0);
@@ -73,9 +75,10 @@
     const parsed = sourceAudits.reduce((sum, item) => sum + Math.min(item.receipts, item.parsed), 0);
     const state = !safeRecords.length
       ? 'empty'
-      : (!hasCollectionEvidence ? 'imported' : (attentionSources.length || warnings.length ? 'attention' : 'complete'));
+      : (!hasCollectionEvidence ? 'imported' : (hasUnverifiedCsv ? 'mixed' : (missingSourceEvidence || attentionSources.length || warnings.length ? 'attention' : 'complete')));
     return Object.freeze({
       state,
+      hasUnverifiedCsv,
       sources: sourceAudits,
       warnings,
       receipts,

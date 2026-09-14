@@ -32,3 +32,7 @@ sha512-tlUj+2IDa7G1SbvBNN74UHRLJybZDWYom+k6p5KIZl7huBvsA4APi6mKL+zCxd3tLjN5hOOEE
 ## Инструмент проверки
 
 Playwright `1.61.1` используется только разработчиками для запуска готового ZIP в чистом Chromium. Он и загружаемый тестовый браузер не входят в архив расширения и не выполняются у пользователя. Точная версия и integrity зафиксированы в `package-lock.json`.
+
+## Golos Text
+
+Golos Text (regular and bold), Copyright 2019 The Golos Text Project Authors. SIL Open Font License 1.1. Bundled locally in `fonts/`; no runtime font requests. License: `fonts/OFL.txt`. Source: https://github.com/googlefonts/golos-text; distribution: https://fonts.google.com/specimen/Golos+Text.

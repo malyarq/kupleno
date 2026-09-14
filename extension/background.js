@@ -57,6 +57,16 @@ function persistenceError(error) {
   return new Error(`Не удалось надёжно сохранить результат сбора${detail}`);
 }
 
+function validCollectedResult(result) {
+  if (!result || typeof result !== 'object' || !Array.isArray(result.rows)) return false;
+  try {
+    assertCollectedRowLimit(result.rows.length);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function persistCollectJob(jobId, job) {
   return enqueueCollectJobPersistence(async () => {
     const [jobStore, resultStore] = await Promise.all([
@@ -128,12 +138,18 @@ async function collectJobResponse(jobId) {
   if (!job) {
     job = await jobStore.load(id);
     if (jobStore.wasInterrupted(job)) {
-      await removePersistedCollectJob(id);
-      return {
-        ok: true,
-        status: 'error',
-        error: 'Сбор был прерван перезапуском фонового процесса. Запустите его ещё раз; прежний отчёт не изменён.'
-      };
+      const result = await resultStore.load(id);
+      if (validCollectedResult(result)) {
+        job = { ...job, status: 'done', result };
+        await jobStore.save(id, job).catch(() => undefined);
+      } else {
+        await removePersistedCollectJob(id);
+        return {
+          ok: true,
+          status: 'error',
+          error: 'Сбор был прерван перезапуском фонового процесса. Запустите его ещё раз; прежний отчёт не изменён.'
+        };
+      }
     }
   }
   if (!job) return { ok: false, error: 'Задача сбора не найдена. Запустите сбор заново.' };
@@ -1547,6 +1563,7 @@ if (typeof module !== 'undefined') {
     filterYandexRows,
     rowsFromYandexReceiptHtml,
     assertCollectedRowLimit,
-    fatalCollectionError
+    fatalCollectionError,
+    collectJobResponse
   };
 }

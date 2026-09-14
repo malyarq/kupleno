@@ -11,7 +11,11 @@ const context = {
   location: { href: 'https://www.ozon.ru/my/e-check', origin: 'https://www.ozon.ru', pathname: '/my/e-check' },
   navigator: { hardwareConcurrency: 8 },
   performance: { getEntriesByType: () => [] },
-  document: { documentElement: { innerHTML: '' }, querySelectorAll: () => [] },
+  document: {
+    cookie: 'wbid-sdk-id-token=x.eyJpc3MiOiJ3Yi5ydSJ9.x',
+    documentElement: { innerHTML: '' },
+    querySelectorAll: () => []
+  },
   chrome: {
     runtime: {
       onMessage: { addListener() {} },
@@ -24,7 +28,8 @@ const context = {
   URL,
   TextDecoder,
   Uint8Array,
-  AbortController
+  AbortController,
+  atob
 };
 context.globalThis = context;
 context.window = context;
@@ -39,7 +44,9 @@ const {
   decodeHtmlEntities,
   assertCollectedRowLimit,
   extractYandexPageTokenFromHtml,
-  hasYandexNextOrdersPage
+  hasYandexNextOrdersPage,
+  normalizeWbReceiptPayload,
+  collectWildberries
 } = context.KuplenoOzonTest;
 
 assert.equal(normalizeText('&amp;'), '&');
@@ -135,8 +142,77 @@ const unresolvedWithoutFullCoverage = filterOzonRows([
   row({ receipt_url: 'https://www.ozon.ru/receipt?id=unresolved-partial', title: 'Товар B', item_index: '2' }),
   row({ date: '2026-01-02 10:00', receipt_url: 'https://www.ozon.ru/receipt?id=resolved-only-a', title: 'Товар A', __ozonSettlementKind: 'full' })
 ]);
-assert.equal(unresolvedWithoutFullCoverage.rows.length, 3, 'неполное покрытие нельзя автоматически считать дублем');
-assert.equal(unresolvedWithoutFullCoverage.duplicateRowsDropped, 0);
+assert.equal(unresolvedWithoutFullCoverage.rows.length, 2, 'сопоставленная позиция заменяется, несопоставленная остаётся');
+assert.equal(unresolvedWithoutFullCoverage.duplicateRowsDropped, 1);
+
+// One early receipt, two final receipts with split delivery (live regression).
+const splitDeliveryRows = [
+  row({ title: 'Device', amount: '300.00' }),
+  row({ title: 'Accessory', amount: '100.00', item_index: '2' }),
+  row({ title: 'Доставка', amount: '30.00', item_index: '3' }),
+  row({ date: '2026-01-02', receipt_url: 'https://www.ozon.ru/receipt?id=final-a', title: 'Device', amount: '300.00', __ozonSettlementKind: 'full' }),
+  row({ date: '2026-01-02', receipt_url: 'https://www.ozon.ru/receipt?id=final-a', title: 'Доставка', amount: '20.00', item_index: '2', __ozonSettlementKind: 'full' }),
+  row({ date: '2026-01-03', receipt_url: 'https://www.ozon.ru/receipt?id=final-b', title: 'Accessory', amount: '100.00', __ozonSettlementKind: 'full' }),
+  row({ date: '2026-01-03', receipt_url: 'https://www.ozon.ru/receipt?id=final-b', title: 'Доставка', amount: '10.00', item_index: '2', __ozonSettlementKind: 'full' })
+];
+const splitDelivery = filterOzonRows(splitDeliveryRows);
+assert.equal(splitDelivery.rows.length, 2);
+assert.equal(splitDelivery.rows.reduce((sum, item) => sum + Number(item.amount), 0), 430);
+assert.equal(splitDelivery.duplicateRowsDropped, 3);
+assert.ok(splitDelivery.supersededReceipts.includes(splitDeliveryRows[0].receipt_url));
+const missingDelivery = filterOzonRows(splitDeliveryRows.filter((item) => item.amount !== '10.00'));
+assert.equal(missingDelivery.duplicateRowsDropped, 2);
+assert.ok(missingDelivery.rows.some(item => item.title === 'Доставка' && item.amount === '30.00'), 'uncovered delivery must remain');
+const otherOrderDelivery = filterOzonRows(splitDeliveryRows.map((item) => item.amount === '10.00'
+  ? { ...item, raw_title: 'Заказ №OTHER' } : item));
+assert.equal(otherOrderDelivery.duplicateRowsDropped, 2, 'another order cannot cover delivery');
+assert.ok(otherOrderDelivery.rows.some(item => item.title === 'Доставка' && item.amount === '30.00'));
+
+const partiallyReturnedRows = [
+  row({ title: 'Device', amount: '300.00' }),
+  row({ title: 'Returned accessory', amount: '50.00', item_index: '2' }),
+  row({ title: 'Device', amount: '300.00', date: '2026-01-02', receipt_url: 'https://www.ozon.ru/receipt?id=final', __ozonSettlementKind: 'full' }),
+  row({ title: 'Returned accessory', amount: '-50.00', date: '2026-01-03', receipt_url: 'https://www.ozon.ru/receipt?id=refund', type: 'refund', is_return: '1' })
+];
+const partiallyReturned = filterOzonRows(partiallyReturnedRows);
+assert.equal(partiallyReturned.rows.length, 3);
+assert.equal(partiallyReturned.rows.reduce((sum, item) => sum + Number(item.amount), 0), 300);
+assert.equal(partiallyReturned.rows.filter((item) => item.title === 'Returned accessory').length, 2);
+assert.equal(partiallyReturned.duplicateRowsDropped, 1);
+const insufficientRefund = filterOzonRows(partiallyReturnedRows.map((item) => item.type === 'refund'
+  ? { ...item, amount: '-25.00' } : item));
+assert.equal(insufficientRefund.duplicateRowsDropped, 1);
+assert.ok(insufficientRefund.rows.some(item => item.amount === '50.00'));
+const priorRefund = filterOzonRows(partiallyReturnedRows.map((item) => item.type === 'refund'
+  ? { ...item, date: '2025-12-01' } : item));
+assert.equal(priorRefund.duplicateRowsDropped, 1);
+assert.ok(priorRefund.rows.some(item => item.amount === '50.00'));
+
+const quantities = filterOzonRows([
+  row({ amount: '80.00', item_index: '1' }),
+  row({ amount: '80.00', item_index: '2' }),
+  row({ amount: '160.00', date: '2026-01-02', receipt_url: 'https://www.ozon.ru/receipt?id=combined', __ozonSettlementKind: 'full' })
+]);
+assert.equal(quantities.rows.length, 1);
+assert.equal(quantities.rows[0].amount, '160.00');
+const splitQuantity = filterOzonRows([
+  row({ amount: '160.00' }),
+  row({ amount: '80.00', date: '2026-01-02', receipt_url: 'https://www.ozon.ru/receipt?id=split-1', __ozonSettlementKind: 'full' }),
+  row({ amount: '80.00', date: '2026-01-03', receipt_url: 'https://www.ozon.ru/receipt?id=split-2', __ozonSettlementKind: 'full' })
+]);
+assert.equal(splitQuantity.rows.length, 2);
+assert.equal(splitQuantity.rows.reduce((sum, item) => sum + Number(item.amount), 0), 160);
+const changedPrice = filterOzonRows([
+  row({ amount: '100.00' }),
+  row({ amount: '99.00', date: '2026-01-02', receipt_url: 'https://www.ozon.ru/receipt?id=price', __ozonSettlementKind: 'full' })
+]);
+assert.equal(changedPrice.rows.length, 2, 'unequal product prices need evidence, not a tolerance');
+const sharedCover = filterOzonRows([
+  row({ receipt_url: 'https://www.ozon.ru/receipt?id=early-1' }),
+  row({ receipt_url: 'https://www.ozon.ru/receipt?id=early-2' }),
+  row({ date: '2026-01-02', receipt_url: 'https://www.ozon.ru/receipt?id=cover', __ozonSettlementKind: 'full' })
+]);
+assert.equal(sharedCover.rows.length, 2, 'one final item can replace only one early item');
 
 const repeatedPurchase = filterOzonRows([
   row({ date: '2026-01-01 10:00', receipt_url: 'https://www.ozon.ru/receipt?id=purchase-1' }),
@@ -151,6 +227,20 @@ const identicalItems = filterOzonRows([
   row({ item_index: '2' })
 ]);
 assert.equal(identicalItems.rows.length, 2);
+
+const deliverySettlement = filterOzonRows([
+  row({ title: 'Доставка', amount: '150.00' }),
+  row({ title: 'Доставка', amount: '150.00', date: '2026-01-02', receipt_url: 'https://www.ozon.ru/receipt?id=delivery-final', __ozonSettlementKind: 'full' })
+]);
+assert.equal(deliverySettlement.rows.length, 1, 'standalone delivery receipts also have a settlement lifecycle');
+assert.equal(deliverySettlement.rows[0].amount, '150.00');
+assert.equal(deliverySettlement.rows[0].ozon_settlement_kind, 'full');
+assert.equal(deliverySettlement.duplicateRowsDropped, 1);
+const uncoveredDeliveryOnly = filterOzonRows([
+  row({ title: 'Доставка', amount: '150.00' }),
+  row({ title: 'Доставка', amount: '100.00', date: '2026-01-02', receipt_url: 'https://www.ozon.ru/receipt?id=delivery-part', __ozonSettlementKind: 'full' })
+]);
+assert.equal(uncoveredDeliveryOnly.rows.length, 2);
 
 const deliveryOnly = foldDeliveryIntoRows([
   row({ title: 'Доставка', amount: '299.00' })
@@ -267,4 +357,44 @@ const yandexNextWithoutToken = '{"hasNext":true,"orders":[{"id":123456}]}';
 assert.equal(hasYandexNextOrdersPage(yandexNextWithoutToken), true);
 assert.equal(extractYandexPageTokenFromHtml(yandexNextWithoutToken), '');
 
-console.log('ozon.test.js: ok');
+async function verifyWildberriesPagination() {
+  assert.equal(JSON.stringify(normalizeWbReceiptPayload({
+    data: { result: { data: { receipts: [], nextReceiptUid: '' } } }
+  })), JSON.stringify({ receipts: [], nextReceiptUid: '' }));
+  assert.equal(normalizeWbReceiptPayload({ error: 'token expired' }), null);
+
+  context.location.href = 'https://www.wildberries.ru/lk/receipts/get';
+  let payloads = [
+    { data: { result: { data: { receipts: [{ receiptUid: 'first' }], nextReceiptUid: 'cursor-2' } } } },
+    { data: { result: { data: { receipts: [], nextReceiptUid: '' } } } }
+  ];
+  context.fetch = async () => new Response(JSON.stringify(payloads.shift()), { status: 200 });
+  const twoPageResult = await collectWildberries({
+    maxPages: 3,
+    pageSize: 10,
+    apiPauseMs: 0,
+    knownReceipts: [],
+    knownReceiptTail: 30
+  });
+  assert.equal(JSON.stringify(twoPageResult), JSON.stringify({
+    receipts: [{ receiptUid: 'first' }],
+    stats: { receipts: 1, apiPages: 2, pageSize: 10, incrementalStopped: false, limitReached: false }
+  }));
+
+  payloads = [
+    { data: { result: { data: { receipts: [{ receiptUid: 'first' }], nextReceiptUid: 'cursor-2' } } } },
+    { error: 'token expired' }
+  ];
+  await assert.rejects(
+    collectWildberries({ maxPages: 3, pageSize: 10, apiPauseMs: 0, knownReceipts: [], knownReceiptTail: 30 }),
+    /неизвестный формат/
+  );
+}
+
+verifyWildberriesPagination().then(() => {
+  console.log('ozon.test.js: ok');
+}).catch((error) => {
+  process.nextTick(() => {
+    throw error;
+  });
+});

@@ -62,6 +62,18 @@ assert.deepEqual(
     excluded: true
   }
 );
+assert.deepEqual(
+  parseSpendCsv('date,marketplace,title,amount,currency\n2026-01-05,ozon,Tea,10, rub ')[0].currency,
+  'RUB'
+);
+assert.deepEqual(
+  parseSpendCsv('date,marketplace,title,amount,currency\n2026-01-05,ozon,Tea,10,   ')[0].currency,
+  'RUB'
+);
+assert.throws(
+  () => parseSpendCsv('date,marketplace,title,amount,currency\n2026-01-05,ozon,Tea,10,USD'),
+  /неподдерживаемая валюта USD.*только RUB/
+);
 assert.throws(
   () => parseSpendCsv('date,marketplace,title,amount,excluded\n2026-01-05,ozon,Tea,10,maybe'),
   /поле excluded в строке 2/
