@@ -33,8 +33,8 @@
       if (!receipts && !itemRows) return null;
       return {
         label: `${parsed}/${receipts} чеков, ${itemRows} строк`,
-        title: `Wildberries: найдено чеков ${receipts}, распознано ${parsed}, без состава ${fallbackReceipts}, без сверки итога ${unverifiedReceipts}, пропущено ${failedReceipts}, строк ${itemRows}.`,
-        warning: failedReceipts > 0 || fallbackReceipts > 0 || unverifiedReceipts > 0
+        title: `Wildberries: найдено чеков ${receipts}, распознано ${parsed}, без состава ${fallbackReceipts}, без сверки итога ${unverifiedReceipts}, пропущено ${failedReceipts}, строк ${itemRows}${limitReached ? ", достигнут лимит страниц" : ""}${paginationIncomplete ? ", список чеков неполный" : ""}.`,
+        warning: failedReceipts > 0 || fallbackReceipts > 0 || unverifiedReceipts > 0 || limitReached || paginationIncomplete
       };
     }
 

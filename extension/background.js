@@ -467,14 +467,14 @@ async function collectFromTabKeepOpen(source, options) {
   }
 }
 
-function amountFromText(text) {
+function amountFromText(text, fallback = 0) {
   const normalized = String(text || '')
     .replace(/\u00a0|\u202f/g, '')
     .replace(/\s/g, '')
     .replace(',', '.')
     .replace(/[^\d.-]/g, '');
   const value = Number(normalized);
-  return Number.isFinite(value) ? value : 0;
+  return normalized && Number.isFinite(value) ? value : fallback;
 }
 
 function decodeHtml(text) {
@@ -591,9 +591,9 @@ function parseWbReceiptItems(html) {
       .replace(/^Наименование\s*/i, '')
       .trim();
     const costBlock = chunk.match(/products-cell_cost[\s\S]*?<div class="products-prop-value">([\s\S]*?)<\/div>/i)?.[1] || '';
-    const amount = amountFromText(stripTags(costBlock));
+    const amount = amountFromText(stripTags(costBlock), null);
 
-    if (title && amount) {
+    if (title && amount !== null) {
       items.push({ title, amount, itemIndex: items.length + 1 });
     }
   }
@@ -708,11 +708,20 @@ async function rowsFromWbReceipts(receipts, concurrencyOption) {
   let completed = 0;
   let itemRows = 0;
   let fallbackReceipts = 0;
+  let skippedReceipts = 0;
   let unverifiedReceipts = 0;
   emitProgress(`Wildberries: HTML-разбор в ${concurrency} потоков.`, 0, receipts.length);
 
   const results = await mapWithConcurrency(receipts, concurrency, async (receipt) => {
-    const result = await recordsFromWbReceipt(receipt);
+    let result;
+    try {
+      result = await recordsFromWbReceipt(receipt);
+    } catch (error) {
+      if (error?.code === 'ROW_LIMIT_EXCEEDED') throw error;
+      skippedReceipts += 1;
+      result = { rows: [], fallbackReason: '' };
+      emitProgress(`Wildberries: чек не удалось прочитать (${String(error.message || error)}); остальные чеки продолжаю.`, completed, receipts.length);
+    }
     const rows = result.rows;
     if (result.fallbackReason) fallbackReceipts += 1;
     if (rows.some((row) => row.parse_quality === 'unverified')) unverifiedReceipts += 1;
@@ -733,8 +742,9 @@ async function rowsFromWbReceipts(receipts, concurrencyOption) {
     rows: results.flat(),
     stats: {
       receipts: receipts.length,
-      parsedReceipts: receipts.length - fallbackReceipts,
-      failedReceipts: fallbackReceipts,
+      parsedReceipts: receipts.length - fallbackReceipts - skippedReceipts,
+      failedReceipts: fallbackReceipts + skippedReceipts,
+      skippedReceipts,
       fallbackReceipts,
       unverifiedReceipts,
       itemRows
@@ -1391,9 +1401,12 @@ async function collectSpend({ sources, options }) {
         const detail = String(item.result.stats.paginationError || '').trim();
         warnings.push(`${label}: список заказов загружен не полностью${detail ? ` (${detail})` : ''}`);
       }
+      if (Number(item.result.stats?.skippedReceipts) > 0) {
+        warnings.push(`${label}: пропущено повреждённых чеков ${Number(item.result.stats.skippedReceipts)}; их суммы не включены в отчёт`);
+      }
       if (Number(item.result.stats?.fallbackReceipts) > 0) {
         warnings.push(`${label}: состав не распознан у чеков ${Number(item.result.stats.fallbackReceipts)}; сохранены только итоговые суммы`);
-      } else if (Number(item.result.stats?.failedReceipts) > 0) {
+      } else if (Number(item.result.stats?.failedReceipts) > 0 && !item.result.stats?.skippedReceipts) {
         warnings.push(`${label}: не разобрано чеков ${Number(item.result.stats.failedReceipts)}`);
       }
       if (Number(item.result.stats?.unverifiedReceipts) > 0) {
@@ -1558,6 +1571,8 @@ if (typeof module !== 'undefined') {
     decodeHtml,
     stripTags,
     parseWbReceiptItems,
+    recordsFromWbReceipt,
+    rowsFromWbReceipts,
     isWildberriesReceiptsPageReady,
     wbOperationType,
     filterYandexRows,

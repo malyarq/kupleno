@@ -378,8 +378,30 @@ async function verifyWildberriesPagination() {
   });
   assert.equal(JSON.stringify(twoPageResult), JSON.stringify({
     receipts: [{ receiptUid: 'first' }],
-    stats: { receipts: 1, apiPages: 2, pageSize: 10, incrementalStopped: false, limitReached: false }
+    stats: { receipts: 1, apiPages: 2, pageSize: 10, incrementalStopped: false, limitReached: false, paginationIncomplete: false, paginationError: '' }
   }));
+
+  const page = (ids, cursor) => ({ data: { receipts: ids.map(receiptUid => ({ receiptUid })), nextReceiptUid: cursor } });
+  const options = { maxPages: 3, pageSize: 10, apiPauseMs: 0, knownReceipts: [], knownReceiptTail: 30 };
+  payloads = [page(['first'], 'repeat'), page(['second'], 'repeat')];
+  const cycle = await collectWildberries(options);
+  assert.equal(cycle.receipts.length, 2);
+  assert.equal(cycle.stats.paginationIncomplete, true, 'повтор страницы не означает полную историю');
+  assert.match(cycle.stats.paginationError, /повторил/);
+
+  payloads = [page(['first'], 'last'), page(['second'], '')];
+  const exactEnd = await collectWildberries({ ...options, maxPages: 2 });
+  assert.equal(exactEnd.stats.limitReached, false, 'последняя страница на лимите всё ещё завершает историю');
+
+  payloads = [page(['known'], 'older')];
+  const shortTail = await collectWildberries({ ...options, maxPages: 1, knownReceipts: ['known'] });
+  assert.equal(shortTail.stats.incrementalStopped, false, 'первый известный чек ещё не завершает проверочный хвост');
+  assert.equal(shortTail.stats.limitReached, true, 'лимит внутри хвоста нельзя скрывать');
+
+  payloads = [page(['known'], 'older')];
+  const boundary = await collectWildberries({ ...options, maxPages: 1, knownReceipts: ['known'], knownReceiptTail: 0 });
+  assert.equal(boundary.stats.incrementalStopped, true);
+  assert.equal(boundary.stats.limitReached, false);
 
   payloads = [
     { data: { result: { data: { receipts: [{ receiptUid: 'first' }], nextReceiptUid: 'cursor-2' } } } },

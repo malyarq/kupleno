@@ -1396,9 +1396,14 @@
     let activePageSize = pageSizes[pageSizeIndex];
     let nextReceiptUid = '';
     let pagesFetched = 0;
+    let incrementalStopped = false;
+    let paginationError = '';
 
     while (pagesFetched < maxPages) {
-      if (seenCursors.has(nextReceiptUid)) break;
+      if (seenCursors.has(nextReceiptUid)) {
+        paginationError = 'Wildberries повторил указатель страницы чеков';
+        break;
+      }
       seenCursors.add(nextReceiptUid);
 
       const page = await fetchWbReceiptsPage({ token, pageSize: activePageSize, nextReceiptUid });
@@ -1427,11 +1432,12 @@
         knownState,
         tailLimit
       )) {
+        incrementalStopped = true;
         sendProgress(`Wildberries: дошёл до уже загруженных чеков, остановка после хвоста ${tailLimit}.`, pagesFetched, maxPages);
         break;
       }
-      if (!page.nextReceiptUid) break;
       nextReceiptUid = page.nextReceiptUid;
+      if (!nextReceiptUid) break;
       if (apiPauseMs > 0) await sleep(apiPauseMs);
     }
 
@@ -1445,8 +1451,10 @@
         receipts: receiptsByUid.size,
         apiPages: pagesFetched,
         pageSize: activePageSize,
-        incrementalStopped: knownState.hit,
-        limitReached: pagesFetched >= maxPages && Boolean(nextReceiptUid) && !knownState.hit
+        incrementalStopped,
+        limitReached: pagesFetched >= maxPages && Boolean(nextReceiptUid) && !incrementalStopped,
+        paginationIncomplete: Boolean(paginationError),
+        paginationError
       }
     };
   }

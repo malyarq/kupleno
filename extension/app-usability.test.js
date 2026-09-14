@@ -136,3 +136,15 @@ test('клавиатура не попадает в скрытые раздел�
   assert.match(app, /panel\.toggleAttribute\('inert', !active\)/);
   assert.match(css, /prefers-reduced-motion: reduce/);
 });
+
+
+test('неполный сбор WB остаётся предупреждением, а не ошибкой всего магазина', () => {
+  const body = app.match(/function isCollectionCompletenessWarning\(value\) \{([\s\S]*?)\n\}/)[1];
+  const classify = require('node:vm').runInNewContext(`(function(value) {${body}})`);
+  for (const warning of [
+    'Wildberries: пропущено повреждённых чеков 1; их суммы не включены в отчёт',
+    'Wildberries: достигнут лимит страниц; часть старых операций могла не попасть в отчёт',
+    'Wildberries: список заказов загружен не полностью (повтор страницы)'
+  ]) assert.equal(classify(warning), true);
+  assert.equal(classify('Wildberries: не найден WB JWT'), false);
+});

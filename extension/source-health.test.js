@@ -14,3 +14,9 @@ assert.deepEqual(health.connectionState({ selected: true, permissionGranted: tru
 assert.deepEqual(health.connectionState({ status: { state: 'error' } }), { state: 'error', label: 'Нужно повторить' });
 
 console.log('source-health.test.js: ok');
+
+for (const flag of ['limitReached', 'paginationIncomplete']) {
+  const wb = health.diagnostic('wildberries', { wildberries: { receipts: 2, parsedReceipts: 2, itemRows: 3, [flag]: true } });
+  assert.equal(wb.warning, true, `WB должен предупреждать о ${flag}`);
+  assert.match(wb.title, /лимит страниц|список чеков неполный/);
+}
