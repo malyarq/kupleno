@@ -1344,7 +1344,11 @@
       json?.data?.result?.data,
       json?.data?.GetReceiptsV4V1?.data,
       json?.result?.data,
-      json?.data
+      json?.data?.result,
+      json?.data?.GetReceiptsV4V1,
+      json?.data,
+      json?.result,
+      json
     ];
 
     for (const candidate of candidates) {
@@ -1359,6 +1363,17 @@
     return null;
   }
 
+  function wbPayloadShape(value, depth = 0) {
+    if (value === null) return 'null';
+    if (Array.isArray(value)) return `array(${value.length})`;
+    if (typeof value !== 'object') return typeof value;
+    if (depth >= 4) return 'object';
+    return `{${Object.keys(value).slice(0, 8).map((key) => {
+      const safeKey = /^[a-zA-Z_][a-zA-Z0-9_]{0,40}$/.test(key) ? key : '?';
+      return `${safeKey}:${wbPayloadShape(value[key], depth + 1)}`;
+    }).join(',')}}`;
+  }
+
   async function fetchWbReceiptsPage({ token, pageSize, nextReceiptUid }) {
     const url = new URL('https://astro.wildberries.ru/api/v1/receipt-api/v1/receipts');
     url.searchParams.set('receiptsPerPage', String(pageSize));
@@ -1370,8 +1385,14 @@
         authorization: `Bearer ${token}`
       }
     });
-    const page = normalizeWbReceiptPayload(JSON.parse(text));
-    if (!page) throw new Error('Wildberries: API вернул неизвестный формат списка чеков.');
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      throw new Error('Wildberries: вместо списка чеков получен ответ не в JSON. Проверьте вход на сайте WB.');
+    }
+    const page = normalizeWbReceiptPayload(payload);
+    if (!page) throw new Error(`Wildberries: API вернул неизвестный формат списка чеков. Структура: ${wbPayloadShape(payload)}`);
     return page;
   }
 
@@ -1916,6 +1937,7 @@
       hasYandexNextOrdersPage,
       assertCollectedRowLimit,
       normalizeWbReceiptPayload,
+      wbPayloadShape,
       collectWildberries
     });
   }

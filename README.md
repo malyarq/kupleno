@@ -13,7 +13,7 @@
 [![Latest release](https://img.shields.io/github/v/release/malyarq/kupleno)](https://github.com/malyarq/kupleno/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-176b57)](LICENSE)
 
-Текущая версия исходников: `0.19.1`. Последний опубликованный релиз: `0.18.2`.
+Текущая версия исходников: `0.19.2`. Последний опубликованный релиз: `0.18.2`.
 
 ![Отчёт Куплено: итоги, динамика и категории](assets/screenshots/analytics.png)
 
@@ -113,7 +113,7 @@ npm run verify:reproducible
 `npm run verify` проверяет модули, эталон категорий, документацию, безопасность, производительность, точный ZIP и пользовательские сценарии в настоящем Chromium. Выпуск из чистого аннотированного тега дополнительно проверяется командой:
 
 ```bash
-npm run verify:release -- v0.19.1
+npm run verify:release -- v0.19.2
 ```
 
 Состав и правила проекта: [архитектура](docs/ARCHITECTURE.md), [тестирование](docs/TESTING.md), [сопровождение](docs/MAINTENANCE.md), [выпуск](RELEASE.md), [участие](CONTRIBUTING.md).

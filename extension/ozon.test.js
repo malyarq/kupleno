@@ -46,6 +46,7 @@ const {
   extractYandexPageTokenFromHtml,
   hasYandexNextOrdersPage,
   normalizeWbReceiptPayload,
+  wbPayloadShape,
   collectWildberries
 } = context.KuplenoOzonTest;
 
@@ -362,6 +363,14 @@ async function verifyWildberriesPagination() {
     data: { result: { data: { receipts: [], nextReceiptUid: '' } } }
   })), JSON.stringify({ receipts: [], nextReceiptUid: '' }));
   assert.equal(normalizeWbReceiptPayload({ error: 'token expired' }), null);
+  const direct = { receipts: [{ receiptUid: 'sample' }], nextReceiptUid: 'next' };
+  for (const wrapper of [direct, { result: direct }, { data: direct }, { data: { result: direct } }, { data: { GetReceiptsV4V1: direct } }]) {
+    assert.equal(JSON.stringify(normalizeWbReceiptPayload(wrapper)), JSON.stringify(direct));
+  }
+  const shape = wbPayloadShape({ data: { receipts: [{ receiptUid: 'private-receipt' }] }, token: 'private-token', message: 'private-message' });
+  assert.match(shape, /receipts:array\(1\)/);
+  assert.doesNotMatch(shape, /private/);
+
 
   context.location.href = 'https://www.wildberries.ru/lk/receipts/get';
   let payloads = [
